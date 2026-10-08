@@ -1,6 +1,6 @@
 use crate::managers::transcription::TranscriptionManager;
 use crate::managers::model::RecognitionLanguageStatus;
-use crate::settings::{get_settings, write_settings, ModelUnloadTimeout};
+use crate::settings::{get_settings, write_settings, ModelUnloadTimeout, RecognitionLanguage};
 use serde::Serialize;
 use specta::Type;
 use std::sync::Arc;
@@ -34,9 +34,10 @@ pub fn get_model_load_status(
 #[tauri::command]
 #[specta::specta]
 pub fn get_recognition_language_status(
+    recognition_language: Option<RecognitionLanguage>,
     transcription_manager: State<Arc<TranscriptionManager>>,
 ) -> RecognitionLanguageStatus {
-    transcription_manager.recognition_language_status()
+    transcription_manager.recognition_language_status(recognition_language.as_ref())
 }
 
 #[tauri::command]

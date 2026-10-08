@@ -13,6 +13,7 @@ import type {
 } from "@/bindings";
 import { commands } from "@/bindings";
 import { toast } from "sonner";
+import i18n from "../i18n";
 
 interface SettingsStore {
   settings: Settings | null;
@@ -331,9 +332,13 @@ export const useSettingsStore = create<SettingsStore>()(
       setUpdating(updateKey, true);
 
       try {
-        set((state) => ({
-          settings: state.settings ? { ...state.settings, [key]: value } : null,
-        }));
+        // Recognition intent is atomic and only presented as saved after the
+        // backend accepts it; failed saves must leave the user's draft intact.
+        if (key !== "recognition_language") {
+          set((state) => ({
+            settings: state.settings ? { ...state.settings, [key]: value } : null,
+          }));
+        }
 
         const updater = settingUpdaters[key];
         if (updater) {
@@ -341,9 +346,19 @@ export const useSettingsStore = create<SettingsStore>()(
         } else if (key !== "bindings" && key !== "selected_model") {
           console.warn(`No handler for setting: ${String(key)}`);
         }
+        if (key === "recognition_language") {
+          set((state) => ({
+            settings: state.settings ? { ...state.settings, [key]: value } : null,
+          }));
+        }
       } catch (error) {
         console.error(`Failed to update setting ${String(key)}:`, error);
-        if (settings) {
+        if (key === "recognition_language" && error instanceof Error) {
+          toast.error(i18n.t("settings.general.language.saveFailed"), {
+            description: error.message,
+          });
+        }
+        if (settings && key !== "recognition_language") {
           set({ settings: { ...settings, [key]: originalValue } });
         }
       } finally {
@@ -656,8 +671,8 @@ export const useSettingsStore = create<SettingsStore>()(
         loadUpdateChecksLocked(),
       ]);
 
-      // Re-fetch settings when the backend changes them (e.g. language
-      // reset during model switch). The backend is the source of truth.
+      // Model changes may alter effective capabilities, but never saved intent.
+      // Keep settings synchronized with the backend source of truth.
       listen("model-state-changed", () => {
         get().refreshSettings();
       });
