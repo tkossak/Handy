@@ -7286,7 +7286,7 @@ dependencies = [
 [[package]]
 name = "transcribe-cpp"
 version = "0.3.1"
-source = "git+https://github.com/tkossak/transcribe.cpp?rev=fc3c082d0ce8dfb3a8b2f7db801f0980b82b77dc#fc3c082d0ce8dfb3a8b2f7db801f0980b82b77dc"
+source = "git+https://github.com/tkossak/transcribe.cpp?rev=243fc2f7211d892f2aa1ad757c467163d064b72f#243fc2f7211d892f2aa1ad757c467163d064b72f"
 dependencies = [
  "log",
  "serde",
@@ -7297,7 +7297,7 @@ dependencies = [
 [[package]]
 name = "transcribe-cpp-sys"
 version = "0.3.1"
-source = "git+https://github.com/tkossak/transcribe.cpp?rev=fc3c082d0ce8dfb3a8b2f7db801f0980b82b77dc#fc3c082d0ce8dfb3a8b2f7db801f0980b82b77dc"
+source = "git+https://github.com/tkossak/transcribe.cpp?rev=243fc2f7211d892f2aa1ad757c467163d064b72f#243fc2f7211d892f2aa1ad757c467163d064b72f"
 dependencies = [
  "cmake",
  "serde_json",
