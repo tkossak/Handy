@@ -21,6 +21,7 @@ import Footer from "./components/footer";
 import Onboarding, { AccessibilityOnboarding } from "./components/onboarding";
 import {
   DebugSettings,
+  GeneralSettings,
   type OnboardingPreviewStep,
 } from "./components/settings";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -39,9 +40,13 @@ const NOOP = () => {};
 const renderSettingsContent = (
   section: SidebarSection,
   onPreviewOnboarding: (step: OnboardingPreviewStep) => void,
+  onChooseModel: () => void,
 ) => {
   if (section === "debug") {
     return <DebugSettings onPreviewOnboarding={onPreviewOnboarding} />;
+  }
+  if (section === "general") {
+    return <GeneralSettings onChooseModel={onChooseModel} />;
   }
 
   const ActiveComponent =
@@ -370,7 +375,7 @@ function App() {
               <div className="flex flex-col items-center p-4 gap-4">
                 <AccessibilityPermissions />
                 <SecureInputWarning />
-                {renderSettingsContent(currentSection, setOnboardingPreview)}
+                {renderSettingsContent(currentSection, setOnboardingPreview, () => setCurrentSection("models"))}
               </div>
             </div>
           </div>

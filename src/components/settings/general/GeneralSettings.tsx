@@ -13,7 +13,7 @@ import { VolumeSlider } from "../VolumeSlider";
 import { MuteWhileRecording } from "../MuteWhileRecording";
 import { ModelSettingsCard } from "./ModelSettingsCard";
 
-export const GeneralSettings: React.FC = () => {
+export const GeneralSettings: React.FC<{ onChooseModel?: () => void }> = ({ onChooseModel }) => {
   const { t } = useTranslation();
   const { audioFeedbackEnabled } = useSettings();
   const isLinux = type() === "linux";
@@ -25,7 +25,7 @@ export const GeneralSettings: React.FC = () => {
         {/* Cancel shortcut remains hidden on Linux because of dynamic shortcut instability. */}
         {!isLinux && <ShortcutInput shortcutId="cancel" grouped={true} />}
       </SettingsGroup>
-      <ModelSettingsCard />
+      <ModelSettingsCard onChooseModel={onChooseModel} />
       <SettingsGroup title={t("settings.sound.title")}>
         <MicrophoneSelector descriptionMode="tooltip" grouped={true} />
         <ChannelSelector descriptionMode="tooltip" grouped={true} />
