@@ -1,4 +1,5 @@
 use crate::managers::transcription::TranscriptionManager;
+use crate::managers::model::RecognitionLanguageStatus;
 use crate::settings::{get_settings, write_settings, ModelUnloadTimeout};
 use serde::Serialize;
 use specta::Type;
@@ -28,6 +29,14 @@ pub fn get_model_load_status(
         is_loaded: transcription_manager.is_model_loaded(),
         current_model: transcription_manager.get_current_model(),
     })
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_recognition_language_status(
+    transcription_manager: State<Arc<TranscriptionManager>>,
+) -> RecognitionLanguageStatus {
+    transcription_manager.recognition_language_status()
 }
 
 #[tauri::command]
