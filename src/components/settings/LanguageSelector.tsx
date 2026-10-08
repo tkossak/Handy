@@ -104,7 +104,9 @@ const LanguagePicker: React.FC<{
         <span id={`${id}-value`} className="truncate">
           {options.find((option) => option.value === value)?.label || getLanguageLabel(value) || value || t("settings.general.language.chooseLanguage")}
         </span>
-        <span aria-hidden="true" className="ms-2">▾</span>
+        <svg aria-hidden="true" className="w-4 h-4 ms-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
       </button>
       {open && !disabled && (
         <div className="absolute top-full start-0 w-full mt-1 bg-background border border-mid-gray/80 rounded shadow-lg z-50 overflow-hidden">
