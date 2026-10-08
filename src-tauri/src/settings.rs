@@ -336,6 +336,66 @@ pub enum VadBackend {
     Silero,
     Earshot,
 }
+/// Persisted user intent, independent of any model-specific fallback.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum RecognitionMode {
+    #[default]
+    Auto,
+    Single,
+    Pair,
+}
+
+#[derive(Serialize, Debug, Clone, PartialEq, Eq, Type, Default)]
+pub struct RecognitionLanguage {
+    pub mode: RecognitionMode,
+    #[serde(default)]
+    pub single_language: String,
+    /// Inactive choices are retained; active invalid pairs fail at resolution.
+    #[serde(default)]
+    pub pair: Vec<String>,
+}
+
+/// A malformed current object must not enter field salvage and reset an active
+/// restriction to Auto. Unknown/missing modes conservatively become an invalid
+/// Pair; malformed inactive choices cannot erase an explicitly valid mode.
+impl<'de> Deserialize<'de> for RecognitionLanguage {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        let blocked = Self { mode: RecognitionMode::Pair, ..Self::default() };
+        let serde_json::Value::Object(mut fields) = value else {
+            return Ok(blocked);
+        };
+        let mode = match fields.remove("mode") {
+            Some(serde_json::Value::String(mode)) => match mode.as_str() {
+                "auto" => RecognitionMode::Auto,
+                "single" => RecognitionMode::Single,
+                "pair" => RecognitionMode::Pair,
+                _ => return Ok(blocked),
+            },
+            _ => return Ok(blocked),
+        };
+        let single_language = match fields.remove("single_language") {
+            Some(serde_json::Value::String(language)) => language,
+            _ => String::new(),
+        };
+        let pair = match fields.remove("pair") {
+            Some(serde_json::Value::Array(candidates)) => candidates
+                .into_iter()
+                .map(|candidate| match candidate {
+                    serde_json::Value::String(language) => language,
+                    _ => String::new(),
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        Ok(Self { mode, single_language, pair })
+    }
+}
+
 
 #[derive(Clone, Serialize, Deserialize, Type)]
 #[serde(transparent)]
@@ -429,8 +489,8 @@ pub struct AppSettings {
     pub selected_output_device: Option<String>,
     #[serde(default = "default_translate_to_english")]
     pub translate_to_english: bool,
-    #[serde(default = "default_selected_language")]
-    pub selected_language: String,
+    #[serde(default)]
+    pub recognition_language: RecognitionLanguage,
     #[serde(default = "default_overlay_position")]
     pub overlay_position: OverlayPosition,
     #[serde(default = "default_debug_mode")]
@@ -574,9 +634,6 @@ fn default_whats_new_last_seen_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
-fn default_selected_language() -> String {
-    "auto".to_string()
-}
 
 fn default_overlay_position() -> OverlayPosition {
     // Position only matters when the overlay is shown; whether it shows at all is
@@ -950,7 +1007,7 @@ pub fn get_default_settings() -> AppSettings {
         clamshell_microphone: None,
         selected_output_device: None,
         translate_to_english: false,
-        selected_language: "auto".to_string(),
+        recognition_language: RecognitionLanguage::default(),
         overlay_position: default_overlay_position(),
         debug_mode: false,
         log_level: default_log_level(),
@@ -1159,18 +1216,38 @@ fn apply_settings_migrations(
         }
     }
 
-    // One-time Chinese script migration: the script used to be chosen through
-    // `zh-Hans`/`zh-Hant` language intents. Split those into the recognition
-    // language and the script setting; every other upgrading user keeps the
-    // unconverted output they had. Only fresh installs get the locale default.
+    // The legacy key is migration input only. A current object wins even when
+    // its active pair is incomplete or incompatible with the selected model.
+    let legacy_language = settings_value
+        .get("selected_language")
+        .and_then(|value| value.as_str())
+        .unwrap_or("auto");
+    let migrating_recognition = settings_value.get("recognition_language").is_none();
+    if migrating_recognition {
+        settings.recognition_language = if legacy_language == "auto" {
+            RecognitionLanguage::default()
+        } else {
+            RecognitionLanguage {
+                mode: RecognitionMode::Single,
+                single_language: legacy_language.to_string(),
+                pair: Vec::new(),
+            }
+        };
+        updated = true;
+    }
+    // Drop the retired key on the next write, including stores containing both.
+    updated |= settings_value.get("selected_language").is_some();
+
+    // Preserve the original script migration and explicit current preference.
+    // Current recognition objects never inherit script intent from a stale key.
     if settings_value.get("chinese_script").is_none() {
-        settings.chinese_script = match settings.selected_language.as_str() {
-            "zh-Hans" => ChineseScript::Simplified,
-            "zh-Hant" => ChineseScript::Traditional,
+        settings.chinese_script = match (migrating_recognition, legacy_language) {
+            (true, "zh-Hans") => ChineseScript::Simplified,
+            (true, "zh-Hant") => ChineseScript::Traditional,
             _ => ChineseScript::AsTranscribed,
         };
-        if settings.chinese_script != ChineseScript::AsTranscribed {
-            settings.selected_language = "zh".to_string();
+        if migrating_recognition && settings.chinese_script != ChineseScript::AsTranscribed {
+            settings.recognition_language.single_language = "zh".to_string();
         }
         updated = true;
     }
@@ -1609,21 +1686,228 @@ mod tests {
     }
 
     #[test]
-    fn chinese_script_migration_only_carries_over_legacy_intents() {
-        for (intent, language, script) in [
-            ("zh-Hans", "zh", ChineseScript::Simplified),
-            ("zh-Hant", "zh", ChineseScript::Traditional),
-            ("auto", "auto", ChineseScript::AsTranscribed),
+    fn recognition_migration_preserves_legacy_behavior_and_unrelated_settings() {
+        for (legacy, mode, language, script) in [
+            ("auto", RecognitionMode::Auto, "", ChineseScript::AsTranscribed),
+            ("en-US", RecognitionMode::Single, "en-US", ChineseScript::AsTranscribed),
+            ("nb", RecognitionMode::Single, "nb", ChineseScript::AsTranscribed),
+            ("no", RecognitionMode::Single, "no", ChineseScript::AsTranscribed),
+            ("fil", RecognitionMode::Single, "fil", ChineseScript::AsTranscribed),
+            ("tl", RecognitionMode::Single, "tl", ChineseScript::AsTranscribed),
+            ("zh-Hans", RecognitionMode::Single, "zh", ChineseScript::Simplified),
+            ("zh-Hant", RecognitionMode::Single, "zh", ChineseScript::Traditional),
         ] {
-            let mut settings = get_default_settings();
-            settings.selected_language = intent.to_string();
-            settings.chinese_script = ChineseScript::Traditional;
-            let raw = serde_json::json!({ "selected_language": intent });
-
+            let raw = serde_json::json!({
+                "selected_language": legacy,
+                "selected_model": "user-model",
+                "translate_to_english": true,
+                "custom_words": ["Handy"],
+                "paste_delay_ms": 123
+            });
+            let mut settings: AppSettings = serde_json::from_value(raw.clone()).unwrap();
             assert!(apply_settings_migrations(&mut settings, &raw));
-            assert_eq!(settings.selected_language, language);
+            assert_eq!(settings.recognition_language.mode, mode);
+            assert_eq!(settings.recognition_language.single_language, language);
+            assert!(settings.recognition_language.pair.is_empty());
             assert_eq!(settings.chinese_script, script);
+            assert_eq!(settings.selected_model, "user-model");
+            assert!(settings.translate_to_english);
+            assert_eq!(settings.custom_words, ["Handy"]);
+            assert_eq!(settings.paste_delay_ms, 123);
+            use crate::managers::model::{
+                resolve_recognition_language, RecognitionLanguageStatus, RecognitionResolution,
+            };
+            let expected = match legacy {
+                "auto" => RecognitionResolution::Auto,
+                "en-US" => RecognitionResolution::Single { language: "en-US".into() },
+                "nb" | "no" => RecognitionResolution::Single { language: "nb".into() },
+                "fil" | "tl" => RecognitionResolution::Single { language: "fil".into() },
+                "zh-Hans" | "zh-Hant" => RecognitionResolution::Single { language: "zh".into() },
+                _ => unreachable!(),
+            };
+            assert_eq!(
+                resolve_recognition_language(
+                    &settings.recognition_language,
+                    &["en-US".into(), "nb".into(), "fil".into(), "zh".into()],
+                    true,
+                    Some(false),
+                ),
+                RecognitionLanguageStatus::Ready { resolution: expected }
+            );
+
+            let saved = serde_json::to_value(&settings).unwrap();
+            assert!(saved.get("selected_language").is_none());
+            let mut reloaded: AppSettings = serde_json::from_value(saved.clone()).unwrap();
+            assert!(!apply_settings_migrations(&mut reloaded, &saved));
+            assert_eq!(reloaded.recognition_language, settings.recognition_language);
+            assert_eq!(reloaded.chinese_script, script);
         }
+    }
+
+    #[test]
+    fn recognition_migration_preserves_current_intent_and_explicit_script() {
+        let raw = serde_json::json!({
+            "selected_language": "zh-Hans",
+            "recognition_language": {
+                "mode": "pair",
+                "single_language": "nb",
+                "pair": ["pl", "en"]
+            },
+            "chinese_script": "traditional"
+        });
+        let mut settings: AppSettings = serde_json::from_value(raw.clone()).unwrap();
+        let intent = settings.recognition_language.clone();
+        apply_settings_migrations(&mut settings, &raw);
+        assert_eq!(settings.recognition_language, intent);
+        assert_eq!(settings.chinese_script, ChineseScript::Traditional);
+        let reloaded: AppSettings =
+            serde_json::from_value(serde_json::to_value(&settings).unwrap()).unwrap();
+        assert_eq!(reloaded.recognition_language, intent);
+    }
+
+    #[test]
+    fn current_recognition_object_does_not_inherit_a_stale_legacy_script() {
+        let raw = serde_json::json!({
+            "selected_language": "zh-Hant",
+            "recognition_language": {
+                "mode": "single",
+                "single_language": "en",
+                "pair": ["pl", "de"]
+            }
+        });
+        let mut settings: AppSettings = serde_json::from_value(raw.clone()).unwrap();
+        apply_settings_migrations(&mut settings, &raw);
+        assert_eq!(settings.recognition_language.single_language, "en");
+        assert_eq!(settings.recognition_language.pair, ["pl", "de"]);
+        assert_eq!(settings.chinese_script, ChineseScript::AsTranscribed);
+    }
+
+    #[test]
+    fn salvage_of_unrelated_fields_does_not_remove_an_active_pair() {
+        let raw = serde_json::json!({
+            "recognition_language": { "mode": "pair", "pair": ["pl", null] },
+            "sound_theme": "invalid",
+            "paste_delay_ms": 123
+        });
+        let mut settings = salvage_settings(&raw);
+        apply_settings_migrations(&mut settings, &raw);
+        assert_eq!(settings.recognition_language.mode, RecognitionMode::Pair);
+        assert_eq!(settings.recognition_language.pair, ["pl", ""]);
+        assert_eq!(settings.paste_delay_ms, 123);
+        assert_eq!(settings.sound_theme, default_sound_theme());
+    }
+
+    #[test]
+    fn malformed_current_recognition_never_restores_legacy_or_unrestricted_intent() {
+        for current in [
+            serde_json::json!(null),
+            serde_json::json!("pair"),
+            serde_json::json!({}),
+            serde_json::json!({ "mode": "invalid", "pair": ["pl", "en"] }),
+            serde_json::json!({ "mode": "pair", "pair": "pl,en" }),
+            serde_json::json!({ "mode": "pair", "single_language": null }),
+        ] {
+            let raw = serde_json::json!({
+                "selected_language": "auto",
+                "recognition_language": current,
+                "paste_delay_ms": 123
+            });
+            let mut settings: AppSettings = serde_json::from_value(raw.clone()).unwrap();
+            apply_settings_migrations(&mut settings, &raw);
+            assert_eq!(settings.recognition_language.mode, RecognitionMode::Pair);
+            assert_eq!(settings.paste_delay_ms, 123);
+            assert_eq!(
+                crate::managers::model::resolve_recognition_language(
+                    &settings.recognition_language,
+                    &["pl".into(), "en".into()],
+                    true,
+                    Some(true),
+                ).into_result().unwrap_err(),
+                "Language pair requires exactly two non-empty language candidates"
+            );
+            let saved = serde_json::to_value(&settings).unwrap();
+            let reloaded: AppSettings = serde_json::from_value(saved).unwrap();
+            assert_eq!(reloaded.recognition_language.mode, RecognitionMode::Pair);
+        }
+    }
+
+    #[test]
+    fn malformed_inactive_single_choice_does_not_erase_a_valid_pair() {
+        let raw = serde_json::json!({
+            "recognition_language": {
+                "mode": "pair",
+                "single_language": 123,
+                "pair": ["pl", "en"]
+            }
+        });
+        let settings: AppSettings = serde_json::from_value(raw).unwrap();
+        assert_eq!(settings.recognition_language.mode, RecognitionMode::Pair);
+        assert_eq!(settings.recognition_language.pair, ["pl", "en"]);
+        assert!(matches!(
+            crate::managers::model::resolve_recognition_language(
+                &settings.recognition_language,
+                &["pl".into(), "en".into()],
+                true,
+                Some(true),
+            ),
+            crate::managers::model::RecognitionLanguageStatus::Ready {
+                resolution: crate::managers::model::RecognitionResolution::Pair { .. }
+            }
+        ));
+    }
+
+    #[test]
+    fn recognition_migration_keeps_existing_script_preference() {
+        let raw = serde_json::json!({
+            "selected_language": "zh-Hant",
+            "chinese_script": "simplified"
+        });
+        let mut settings: AppSettings = serde_json::from_value(raw.clone()).unwrap();
+        apply_settings_migrations(&mut settings, &raw);
+        assert_eq!(settings.recognition_language.mode, RecognitionMode::Single);
+        assert_eq!(settings.recognition_language.single_language, "zh-Hant");
+        assert_eq!(settings.chinese_script, ChineseScript::Simplified);
+    }
+
+    #[test]
+    fn absent_recognition_settings_never_opt_in_to_pair() {
+        let raw = serde_json::json!({});
+        let mut settings: AppSettings = serde_json::from_value(raw.clone()).unwrap();
+        apply_settings_migrations(&mut settings, &raw);
+        assert_eq!(settings.recognition_language, RecognitionLanguage::default());
+        assert_eq!(settings.chinese_script, ChineseScript::AsTranscribed);
+    }
+
+    #[test]
+    fn incomplete_persisted_pair_retains_active_restriction_and_other_settings() {
+        for pair in [
+            serde_json::json!([]),
+            serde_json::json!(["pl"]),
+            serde_json::json!(["pl", null]),
+            serde_json::json!(null),
+        ] {
+            let raw = serde_json::json!({
+                "recognition_language": { "mode": "pair", "pair": pair },
+                "paste_delay_ms": 123
+            });
+            let settings: AppSettings = serde_json::from_value(raw).unwrap();
+            assert_eq!(settings.recognition_language.mode, RecognitionMode::Pair);
+            assert_eq!(settings.paste_delay_ms, 123);
+            let status = crate::managers::model::resolve_recognition_language(
+                &settings.recognition_language,
+                &["pl".into(), "en".into()],
+                true,
+                Some(true),
+            );
+            assert!(matches!(
+                status,
+                crate::managers::model::RecognitionLanguageStatus::Incompatible { .. }
+            ));
+        }
+        let raw = serde_json::json!({ "recognition_language": { "mode": "pair" } });
+        let settings: AppSettings = serde_json::from_value(raw).unwrap();
+        assert_eq!(settings.recognition_language.mode, RecognitionMode::Pair);
+        assert!(settings.recognition_language.pair.is_empty());
     }
 
     #[test]
@@ -1751,7 +2035,8 @@ mod tests {
             "overlay_style": "live",
             "chinese_script": "as_transcribed",
             "transcribe_accelerator": "gpu",
-            "transcribe_gpu_device": settings.transcribe_gpu_device
+            "transcribe_gpu_device": settings.transcribe_gpu_device,
+            "recognition_language": { "mode": "auto" },
         });
 
         assert!(!apply_settings_migrations(&mut settings, &raw));
