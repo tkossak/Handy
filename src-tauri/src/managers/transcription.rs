@@ -8,7 +8,10 @@ use crate::engine_supervisor::{
     StreamProgress, Unloading,
 };
 use crate::managers::audio::AudioRecordingManager;
-use crate::managers::model::{EngineType, ModelManager};
+use crate::managers::model::{
+    resolve_recognition_language, EngineType, ModelManager, RecognitionLanguageStatus,
+    RecognitionResolution,
+};
 use crate::settings::{
     get_settings, AppSettings, ChineseScript, ModelUnloadTimeout, OrtAcceleratorSetting,
     TranscribeAcceleratorSetting,
@@ -808,6 +811,21 @@ impl TranscriptionManager {
         current_model.clone()
     }
 
+    /// Presentation uses the same policy as run planning. Pair capability is
+    /// pending until the loaded native capability integration supplies it.
+    pub fn recognition_language_status(&self) -> RecognitionLanguageStatus {
+        let settings = get_settings(&self.app_handle);
+        match self.model_manager.get_model_info(&settings.selected_model) {
+            Some(info) => resolve_recognition_language(
+                &settings.recognition_language,
+                &info.supported_languages,
+                info.supports_language_detection,
+                None,
+            ),
+            None => resolve_recognition_language(&settings.recognition_language, &[], true, None),
+        }
+    }
+
     /// The compute backend the currently-loaded engine is bound to, for
     /// diagnostics (e.g. confirming `--device-index` actually bound a GPU rather
     /// than falling back to CPU/auto). transcribe-cpp (whisper-family) reports
@@ -914,8 +932,21 @@ impl TranscriptionManager {
         // Build run options mirroring the offline transcribe-cpp path: task +
         // language gated against what the model actually advertises.
         let settings = get_settings(&self.app_handle);
-        let effective_language =
-            effective_language_for_model(&settings, self.model_manager.as_ref(), &model_id);
+        let effective_language = match effective_language_for_model(
+            &settings,
+            self.model_manager.as_ref(),
+            &model_id,
+        ) {
+            Ok(language) => language,
+            Err(error) => {
+                // No preview may bypass a pair restriction. Finalize uses the
+                // batch path, which reports the same incompatibility to callers.
+                warn!("Live preview blocked by recognition intent: {error}");
+                self.router.clear();
+                drain_until_finalize(rx);
+                return;
+            }
+        };
         let run_plan = transcribe_cpp_run_plan(
             settings.translate_to_english,
             &effective_language,
@@ -1163,27 +1194,18 @@ impl TranscriptionManager {
         // Get current settings for configuration
         let settings = get_settings(&self.app_handle);
 
-        // Validate selected language against the model's supported languages.
-        // If the language isn't supported, fall back to "auto" to prevent errors.
-        // Validate against the model that's actually loaded (which can differ
-        // from settings.selected_model when a caller loaded a specific model —
-        // e.g. the --transcribe-file path's --model), not the persisted
-        // selection.
+        // Resolve against the model actually loaded, including headless callers
+        // that loaded a different model from the persisted selection. Never
+        // write model-specific fallback choices back to the saved intent.
         let active_model = self
             .get_current_model()
             .unwrap_or_else(|| settings.selected_model.clone());
-        // Resolve the persisted language *intent* into the language this model
-        // will actually use. The coercion is capability-aware (a must-pick model
-        // never receives "auto") and computed fresh here — it is never written
-        // back to settings, so the intent survives switching models and back.
         let validated_language =
-            effective_language_for_model(&settings, self.model_manager.as_ref(), &active_model);
-        if validated_language != settings.selected_language {
-            debug!(
-                "Language intent '{}' resolved to '{}' for model '{}'",
-                settings.selected_language, validated_language, active_model
-            );
-        }
+            effective_language_for_model(&settings, self.model_manager.as_ref(), &active_model)?;
+        debug!(
+            "Recognition intent {:?} resolved to '{}' for model '{}'",
+            settings.recognition_language, validated_language, active_model
+        );
 
         // Perform transcription with the appropriate engine.
         let run = match self.engine.loaded() {
@@ -1646,20 +1668,26 @@ fn real_time_factor(audio_secs: f64, compute_secs: f64) -> f64 {
     }
 }
 
-/// Resolve the persisted language intent into the language a specific model can
-/// use without writing the coerced value back to settings.
+/// Resolve existing modes for current callers. Until native candidate dispatch
+/// is integrated, Pair explicitly errors rather than becoming unrestricted Auto.
 fn effective_language_for_model(
     settings: &AppSettings,
     model_manager: &ModelManager,
     model_id: &str,
-) -> String {
-    match model_manager.get_model_info(model_id) {
-        Some(info) => crate::managers::model::effective_language(
-            &settings.selected_language,
+) -> Result<String> {
+    let status = match model_manager.get_model_info(model_id) {
+        Some(info) => resolve_recognition_language(
+            &settings.recognition_language,
             &info.supported_languages,
             info.supports_language_detection,
+            Some(false),
         ),
-        None => settings.selected_language.clone(),
+        None => resolve_recognition_language(&settings.recognition_language, &[], true, Some(false)),
+    };
+    match status.into_result().map_err(anyhow::Error::msg)? {
+        RecognitionResolution::Auto => Ok("auto".into()),
+        RecognitionResolution::Single { language } => Ok(language),
+        RecognitionResolution::Pair { .. } => Err(anyhow::anyhow!("Language pair dispatch is not supported")),
     }
 }
 
@@ -1682,8 +1710,8 @@ fn resolve_output_language_evidence(
     // drops a requested hint when the loaded model does not advertise it.
     if let Some(language) = applied_language_hint.filter(|lang| !lang.is_empty() && *lang != "auto")
     {
-        if settings.selected_language != "auto"
-            && crate::managers::model::canonical_language_code(&settings.selected_language)
+        if settings.recognition_language.mode == crate::settings::RecognitionMode::Single
+            && crate::managers::model::canonical_language_code(&settings.recognition_language.single_language)
                 == crate::managers::model::canonical_language_code(language)
         {
             return OutputLanguageEvidence::UserSelected(language.to_string());
@@ -2246,7 +2274,11 @@ mod tests {
     fn portuguese_transcription_does_not_use_english_ui_filler_words() {
         let settings = AppSettings {
             app_language: "en".to_string(),
-            selected_language: "pt-BR".to_string(),
+            recognition_language: crate::settings::RecognitionLanguage {
+                mode: crate::settings::RecognitionMode::Single,
+                single_language: "pt-BR".into(),
+                ..Default::default()
+            },
             ..Default::default()
         };
         let supported = languages(&["en", "pt"]);
@@ -2270,7 +2302,11 @@ mod tests {
     #[test]
     fn norwegian_alias_is_recorded_as_user_selected_evidence() {
         let settings = AppSettings {
-            selected_language: "no".to_string(),
+            recognition_language: crate::settings::RecognitionLanguage {
+                mode: crate::settings::RecognitionMode::Single,
+                single_language: "no".into(),
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -2282,11 +2318,37 @@ mod tests {
             OutputLanguageEvidence::UserSelected("nb".to_string())
         );
     }
+    #[test]
+    fn pair_intent_is_detection_not_user_selected_language_evidence() {
+        let settings = AppSettings {
+            recognition_language: crate::settings::RecognitionLanguage {
+                mode: crate::settings::RecognitionMode::Pair,
+                single_language: "en".into(),
+                pair: vec!["pl".into(), "en".into()],
+            },
+            ..Default::default()
+        };
+        let supported = languages(&["pl", "en"]);
+        let evidence = resolve_output_language_evidence(&settings, None, &supported, false);
+        assert_eq!(evidence, OutputLanguageEvidence::Unknown);
+        assert_eq!(
+            with_model_detected_language(evidence, Some("pl".into())),
+            OutputLanguageEvidence::ModelDetected("pl".into())
+        );
+        assert_eq!(
+            resolve_output_language_evidence(&settings, None, &supported, true),
+            OutputLanguageEvidence::TranslatedToEnglish
+        );
+        assert_eq!(
+            resolve_output_language_evidence(&settings, Some("en"), &supported, false),
+            OutputLanguageEvidence::ModelConstrained("en".into())
+        );
+    }
+
 
     #[test]
     fn auto_language_without_detection_skips_gated_filler_removal() {
         let settings = AppSettings {
-            selected_language: "auto".to_string(),
             ..Default::default()
         };
         let evidence =
@@ -2309,7 +2371,6 @@ mod tests {
     #[test]
     fn unknown_evidence_with_confident_text_detection_removes_gated_fillers() {
         let settings = AppSettings {
-            selected_language: "auto".to_string(),
             ..Default::default()
         };
 
@@ -2331,7 +2392,6 @@ mod tests {
     #[test]
     fn unknown_evidence_with_portuguese_text_preserves_um() {
         let settings = AppSettings {
-            selected_language: "auto".to_string(),
             ..Default::default()
         };
 

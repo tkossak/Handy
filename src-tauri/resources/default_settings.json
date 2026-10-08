@@ -8,5 +8,9 @@
     }
   },
   "push_to_talk": true,
-  "selected_language": "auto"
+  "recognition_language": {
+    "mode": "auto",
+    "single_language": "",
+    "pair": []
+  }
 }

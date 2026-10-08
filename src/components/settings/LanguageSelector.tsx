@@ -4,6 +4,11 @@ import { SettingContainer } from "../ui/SettingContainer";
 import { ResetButton } from "../ui/ResetButton";
 import { useSettings } from "../../hooks/useSettings";
 import {
+  commands,
+  type RecognitionLanguage,
+  type RecognitionLanguageStatus,
+} from "../../bindings";
+import {
   getLanguageLabel,
   LANGUAGES,
   recognitionLanguage,
@@ -19,23 +24,12 @@ interface LanguageSelectorProps {
   supportsLanguageDetection?: boolean;
 }
 
-// Mirrors the matching logic of `effective_language` in
-// src-tauri/src/managers/model.rs. The Rust function is authoritative for the
-// *concrete* code the engine receives (e.g. `nb`); this resolves the canonical
-// picker intent (e.g. `no`) so model switches preserve the user's language.
-// Model codes such as `en-US` and `nb` resolve to their `en` / `no` entry.
-const effectiveLanguage = (
-  intent: string,
-  supported: string[],
-  supportsDetection: boolean,
-): string => {
-  if (supported.length === 0) return recognitionLanguage(intent);
-  if (intent !== "auto" && supportsLanguageCode(supported, intent))
-    return recognitionLanguage(intent);
-  if (supportsDetection) return "auto";
-  if (supportsLanguageCode(supported, "en")) return "en";
-  return recognitionLanguage(supported[0]);
+const DEFAULT_RECOGNITION_LANGUAGE: RecognitionLanguage = {
+  mode: "auto",
+  single_language: "",
+  pair: [],
 };
+
 
 export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
   descriptionMode = "tooltip",
@@ -44,19 +38,34 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
   supportsLanguageDetection = true,
 }) => {
   const { t } = useTranslation();
-  const { getSetting, updateSetting, resetSetting, isUpdating } = useSettings();
+  const { getSetting, updateSetting, isUpdating } = useSettings();
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const dropdownRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // The persisted *intent* (auto | code). What's actually used/shown is the
-  // effective value resolved against the current model's capabilities.
-  const intent = getSetting("selected_language") || "auto";
-  const selectedLanguage = effectiveLanguage(
-    intent,
-    supportedLanguages ?? [],
-    supportsLanguageDetection,
+  const intent = getSetting("recognition_language") ?? DEFAULT_RECOGNITION_LANGUAGE;
+  const updating = isUpdating("recognition_language");
+  const [status, setStatus] = useState<RecognitionLanguageStatus | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setStatus(null);
+    if (!updating) {
+      commands.getRecognitionLanguageStatus().then((result) => {
+        if (!cancelled) setStatus(result);
+      }).catch(() => {
+        // A failed capability read is not permission to reinterpret Pair.
+        if (!cancelled) setStatus({ status: "unknown" });
+      });
+    }
+    return () => { cancelled = true; };
+  }, [intent, supportedLanguages, supportsLanguageDetection, updating]);
+  const resolution = status?.status === "ready" ? status.resolution : null;
+  const selectedLanguage = intent.mode === "pair" ? "" : recognitionLanguage(
+    resolution?.mode === "single"
+      ? resolution.language
+      : resolution?.mode === "auto" ? "auto"
+        : intent.mode === "single" ? intent.single_language ?? "" : "auto",
   );
 
   useEffect(() => {
@@ -100,21 +109,26 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
     [searchQuery, availableLanguages],
   );
 
-  const selectedLanguageName =
-    getLanguageLabel(selectedLanguage) || t("settings.general.language.auto");
+  const selectedLanguageName = intent.mode === "pair"
+    ? (intent.pair ?? []).map((language) => getLanguageLabel(language) || language).join(" / ") || "—"
+    : getLanguageLabel(selectedLanguage) || t("settings.general.language.auto");
 
   const handleLanguageSelect = async (languageCode: string) => {
-    await updateSetting("selected_language", languageCode);
+    await updateSetting("recognition_language", {
+      ...intent,
+      mode: languageCode === "auto" ? "auto" : "single",
+      single_language: languageCode === "auto" ? intent.single_language : languageCode,
+    });
     setIsOpen(false);
     setSearchQuery("");
   };
 
   const handleReset = async () => {
-    await resetSetting("selected_language");
+    await updateSetting("recognition_language", { ...intent, mode: "auto" });
   };
 
   const handleToggle = () => {
-    if (isUpdating("selected_language")) return;
+    if (updating) return;
     setIsOpen(!isOpen);
   };
 
@@ -144,12 +158,12 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
           <button
             type="button"
             className={`px-2 py-1 text-sm font-semibold bg-mid-gray/10 border border-mid-gray/80 rounded min-w-[200px] text-start flex items-center justify-between transition-all duration-150 ${
-              isUpdating("selected_language")
+              updating
                 ? "opacity-50 cursor-not-allowed"
                 : "hover:bg-logo-primary/10 cursor-pointer hover:border-logo-primary"
             }`}
             onClick={handleToggle}
-            disabled={isUpdating("selected_language")}
+            disabled={updating}
           >
             <span className="truncate">{selectedLanguageName}</span>
             <svg
@@ -169,7 +183,7 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
             </svg>
           </button>
 
-          {isOpen && !isUpdating("selected_language") && (
+          {isOpen && !updating && (
             <div className="absolute top-full left-0 right-0 mt-1 bg-background border border-mid-gray/80 rounded shadow-lg z-50 max-h-60 overflow-hidden">
               {/* Search input */}
               <div className="p-2 border-b border-mid-gray/80">
@@ -213,10 +227,10 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
         </div>
         <ResetButton
           onClick={handleReset}
-          disabled={isUpdating("selected_language")}
+          disabled={updating}
         />
       </div>
-      {isUpdating("selected_language") && (
+      {updating && (
         <div className="absolute inset-0 bg-mid-gray/10 rounded flex items-center justify-center">
           <div className="w-4 h-4 border-2 border-logo-primary border-t-transparent rounded-full animate-spin"></div>
         </div>
