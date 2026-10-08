@@ -1108,7 +1108,7 @@ export type PostProcessProvider = { id: string; label: string; base_url: string;
 export type RecognitionLanguage = { mode: RecognitionMode; single_language?: string; pair?: string[] }
 export type RecognitionMode = "auto" | "single" | "pair"
 export type RecognitionResolution = { mode: "auto" } | { mode: "single"; language: string } | { mode: "pair"; languages: [string, string] }
-export type RecognitionLanguageError = { code: "invalid_pair" } | { code: "duplicate_candidates" } | { code: "pair_unsupported" } | { code: "detection_unsupported" } | { code: "unsupported_candidate"; language: string }
+export type RecognitionLanguageError = { code: "invalid_pair" } | { code: "duplicate_candidates" } | { code: "pair_unsupported" } | { code: "detection_unsupported" } | { code: "unsupported_candidate"; language: string } | { code: "model_unavailable"; message: string }
 /**
  * Unknown means loaded capability validation is pending, not unrestricted Auto.
  */

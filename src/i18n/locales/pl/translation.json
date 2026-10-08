@@ -247,7 +247,8 @@
           "duplicate_candidates": "Wybierz dwa różne języki rozpoznawania. Aliasy i warianty pisma tego samego języka nie tworzą pary.",
           "pair_unsupported": "Załadowany model nie obsługuje wykrywania języka ograniczonego do pary.",
           "detection_unsupported": "Załadowany model nie obsługuje automatycznego wykrywania języka.",
-          "unsupported_candidate": "Załadowany model nie obsługuje kandydata {{language}}."
+          "unsupported_candidate": "Załadowany model nie obsługuje kandydata {{language}}.",
+          "model_unavailable": "Nie udało się załadować lub sprawdzić wybranego modelu: {{message}}"
         }
       },
       "shortcutActivation": {

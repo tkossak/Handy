@@ -251,7 +251,9 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
     : availableLanguages;
   const reasonText = (reason: RecognitionLanguageError) => reason.code === "unsupported_candidate"
     ? t("settings.general.language.reasons.unsupported_candidate", { language: getLanguageLabel(reason.language) || reason.language })
-    : t(`settings.general.language.reasons.${reason.code}`);
+    : reason.code === "model_unavailable"
+      ? t("settings.general.language.reasons.model_unavailable", { message: reason.message })
+      : t(`settings.general.language.reasons.${reason.code}`);
   const structuralError = preview?.status === "incompatible" && (preview.reason.code === "invalid_pair" || preview.reason.code === "duplicate_candidates");
   const canSavePair = !!preview && !structuralError && !previewFailed && !disabled;
   const dirtyPair = editingPair || draftPair.length !== intent.pair.length || draftPair.some((code, index) => code !== intent.pair[index]);

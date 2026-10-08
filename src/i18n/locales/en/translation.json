@@ -227,7 +227,8 @@
           "duplicate_candidates": "Choose two distinct recognition languages. Aliases and script variants of the same language are not a pair.",
           "pair_unsupported": "The loaded model does not support pair-constrained language detection.",
           "detection_unsupported": "The loaded model does not support automatic language detection.",
-          "unsupported_candidate": "The loaded model does not support the candidate {{language}}."
+          "unsupported_candidate": "The loaded model does not support the candidate {{language}}.",
+          "model_unavailable": "Could not load or validate the selected model: {{message}}"
         }
       },
       "shortcutActivation": {
