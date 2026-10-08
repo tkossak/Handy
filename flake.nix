@@ -46,6 +46,7 @@
         openssl
         vulkan-loader
         vulkan-headers
+        spirv-headers
         shaderc
       ];
 
