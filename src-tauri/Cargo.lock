@@ -7286,8 +7286,7 @@ dependencies = [
 [[package]]
 name = "transcribe-cpp"
 version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f06368bb32251b5e93ceb8cae2d6ba9adff6a51693c7ce108449e65522b05c6"
+source = "git+https://github.com/tkossak/transcribe.cpp?rev=fc3c082d0ce8dfb3a8b2f7db801f0980b82b77dc#fc3c082d0ce8dfb3a8b2f7db801f0980b82b77dc"
 dependencies = [
  "log",
  "serde",
@@ -7298,8 +7297,7 @@ dependencies = [
 [[package]]
 name = "transcribe-cpp-sys"
 version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fedfadb42719d92e58a2c340ccfb6ef327ac1b846fc1d4716b65384a330513a6"
+source = "git+https://github.com/tkossak/transcribe.cpp?rev=fc3c082d0ce8dfb3a8b2f7db801f0980b82b77dc#fc3c082d0ce8dfb3a8b2f7db801f0980b82b77dc"
 dependencies = [
  "cmake",
  "serde_json",
