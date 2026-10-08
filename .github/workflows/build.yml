@@ -466,17 +466,17 @@ jobs:
             cd src-tauri
             if [ "$PROFILE" = "release" ]; then cargo build --release; else cargo build; fi
           )
-          # The install manifest sits next to libtranscribe in <crate-out>/lib.
-          # Pick the newest match in case a stale build dir lingers in the cache.
-          LIBDIR="$(find "src-tauri/target/$PROFILE/build" \
-            -type f -name transcribe-link.json -path '*transcribe-cpp-sys*/out/lib/*' \
-            -printf '%T@ %h\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)"
-          if [ -z "${LIBDIR:-}" ] || [ ! -d "$LIBDIR" ]; then
-            echo "ERROR: could not locate transcribe-cpp-sys install lib dir" >&2
-            find src-tauri/target \( -name 'libtranscribe*' -o -name 'libggml*' \) 2>/dev/null >&2 || true
+          # build.rs recreates this directory from the active dependency's
+          # DEP_TRANSCRIBE_CPP_RUNTIME_DIR / MODULE_DIR metadata. Do not select
+          # a sys output by mtime: a restored cache may contain a newer stock
+          # runtime from a different source revision or feature configuration.
+          LIBDIR="$(pwd)/src-tauri/transcribe-libs"
+          if [ ! -d "$LIBDIR" ] || ! compgen -G "$LIBDIR/libtranscribe.so*" >/dev/null \
+            || ! compgen -G "$LIBDIR/libggml-cpu*.so*" >/dev/null \
+            || [ ! -f "$LIBDIR/libggml-vulkan.so" ]; then
+            echo "ERROR: active transcribe-cpp runtime staging is incomplete: $LIBDIR" >&2
             exit 1
           fi
-          LIBDIR="$(cd "$LIBDIR" && pwd)"
           echo "Located transcribe-cpp libs in: $LIBDIR"
           ls -la "$LIBDIR"
           echo "LD_LIBRARY_PATH=$LIBDIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"

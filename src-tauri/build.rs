@@ -169,6 +169,12 @@ fn stage_transcribe_runtime_libs() {
     println!("cargo:rerun-if-env-changed=DEP_TRANSCRIBE_CPP_RUNTIME_DIR");
     println!("cargo:rerun-if-env-changed=DEP_TRANSCRIBE_CPP_MODULE_DIR");
 
+    // Also clear dynamic libraries when switching to a static target (Windows
+    // ARM/macOS), so a prior target's runtime cannot enter its installer.
+    let dest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("transcribe-libs");
+    if dest.exists() {
+        std::fs::remove_dir_all(&dest).expect("clear transcribe-libs staging dir");
+    }
     // Present only in a shared posture. A static build has nothing to ship.
     let Some(runtime_dir) = std::env::var_os("DEP_TRANSCRIBE_CPP_RUNTIME_DIR") else {
         return;
@@ -187,10 +193,6 @@ fn stage_transcribe_runtime_libs() {
         dirs.insert(PathBuf::from(module_dir));
     }
 
-    let dest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("transcribe-libs");
-    // Recreate clean so a renamed or dropped ggml module can never linger in the
-    // package from a previous build.
-    let _ = std::fs::remove_dir_all(&dest);
     std::fs::create_dir_all(&dest).expect("create transcribe-libs staging dir");
 
     // Collect every candidate library name first (across both dirs) so the
