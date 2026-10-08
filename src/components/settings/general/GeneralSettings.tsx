@@ -13,7 +13,9 @@ import { VolumeSlider } from "../VolumeSlider";
 import { MuteWhileRecording } from "../MuteWhileRecording";
 import { ModelSettingsCard } from "./ModelSettingsCard";
 
-export const GeneralSettings: React.FC<{ onChooseModel?: () => void }> = ({ onChooseModel }) => {
+export const GeneralSettings: React.FC<{ onChooseModel?: () => void }> = ({
+  onChooseModel,
+}) => {
   const { t } = useTranslation();
   const { audioFeedbackEnabled } = useSettings();
   const isLinux = type() === "linux";

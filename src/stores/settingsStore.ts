@@ -336,7 +336,9 @@ export const useSettingsStore = create<SettingsStore>()(
         // backend accepts it; failed saves must leave the user's draft intact.
         if (key !== "recognition_language") {
           set((state) => ({
-            settings: state.settings ? { ...state.settings, [key]: value } : null,
+            settings: state.settings
+              ? { ...state.settings, [key]: value }
+              : null,
           }));
         }
 
@@ -348,7 +350,9 @@ export const useSettingsStore = create<SettingsStore>()(
         }
         if (key === "recognition_language") {
           set((state) => ({
-            settings: state.settings ? { ...state.settings, [key]: value } : null,
+            settings: state.settings
+              ? { ...state.settings, [key]: value }
+              : null,
           }));
         }
       } catch (error) {
