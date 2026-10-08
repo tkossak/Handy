@@ -375,7 +375,11 @@ function App() {
               <div className="flex flex-col items-center p-4 gap-4">
                 <AccessibilityPermissions />
                 <SecureInputWarning />
-                {renderSettingsContent(currentSection, setOnboardingPreview, () => setCurrentSection("models"))}
+                {renderSettingsContent(
+                  currentSection,
+                  setOnboardingPreview,
+                  () => setCurrentSection("models"),
+                )}
               </div>
             </div>
           </div>

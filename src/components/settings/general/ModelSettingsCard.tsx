@@ -6,7 +6,9 @@ import { TranslateToEnglish } from "../TranslateToEnglish";
 import { useModelStore } from "../../../stores/modelStore";
 import type { ModelInfo } from "@/bindings";
 
-export const ModelSettingsCard: React.FC<{ onChooseModel?: () => void }> = ({ onChooseModel }) => {
+export const ModelSettingsCard: React.FC<{ onChooseModel?: () => void }> = ({
+  onChooseModel,
+}) => {
   const { t } = useTranslation();
   const { currentModel, models } = useModelStore();
 
@@ -26,7 +28,9 @@ export const ModelSettingsCard: React.FC<{ onChooseModel?: () => void }> = ({ on
         descriptionMode="tooltip"
         grouped={true}
         supportedLanguages={currentModelInfo?.supported_languages}
-        supportsLanguageDetection={currentModelInfo?.supports_language_detection}
+        supportsLanguageDetection={
+          currentModelInfo?.supports_language_detection
+        }
         supportsLanguageSelection={showLanguageSelector}
         onChooseModel={onChooseModel}
       />

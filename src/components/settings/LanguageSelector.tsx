@@ -11,7 +11,11 @@ import {
   type RecognitionLanguageError,
   type RecognitionMode,
 } from "../../bindings";
-import { getLanguageLabel, LANGUAGES, type Language } from "../../lib/constants/languages";
+import {
+  getLanguageLabel,
+  LANGUAGES,
+  type Language,
+} from "../../lib/constants/languages";
 import type { ModelStateEvent } from "../../lib/types/events";
 
 interface LanguageSelectorProps {
@@ -29,7 +33,8 @@ const DEFAULT_RECOGNITION_LANGUAGE: RecognitionLanguage = {
   pair: [],
 };
 
-const controlClass = "px-2 py-1 text-sm font-semibold bg-mid-gray/10 border border-mid-gray/80 rounded min-w-[200px] text-start hover:bg-logo-primary/10 hover:border-logo-primary disabled:opacity-50 disabled:cursor-not-allowed";
+const controlClass =
+  "px-2 py-1 text-sm font-semibold bg-mid-gray/10 border border-mid-gray/80 rounded min-w-[200px] text-start hover:bg-logo-primary/10 hover:border-logo-primary disabled:opacity-50 disabled:cursor-not-allowed";
 
 // Keep the existing searchable language presentation, including raw custom-model
 // codes. Resolution and duplicate detection belong exclusively to the backend.
@@ -50,7 +55,9 @@ const LanguagePicker: React.FC<{
   const triggerRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const filtered = options.filter((option) =>
-    `${option.label} ${option.value}`.toLowerCase().includes(query.toLowerCase()),
+    `${option.label} ${option.value}`
+      .toLowerCase()
+      .includes(query.toLowerCase()),
   );
   const close = () => {
     setOpen(false);
@@ -78,18 +85,27 @@ const LanguagePicker: React.FC<{
   }, [open]);
   useEffect(() => {
     if (open) {
-      document.getElementById(`${id}-option-${active}`)?.scrollIntoView({ block: "nearest" });
+      document
+        .getElementById(`${id}-option-${active}`)
+        ?.scrollIntoView({ block: "nearest" });
     }
   }, [active, open, query, id]);
   return (
-    <div className="relative" ref={wrapperRef} data-recognition-picker={selector} onKeyDown={(event) => {
-      if (event.key === "Escape" && open) {
-        event.preventDefault();
-        close();
-        triggerRef.current?.focus();
-      }
-    }}>
-      <span id={`${id}-label`} className="block text-sm mb-1">{label}</span>
+    <div
+      className="relative"
+      ref={wrapperRef}
+      data-recognition-picker={selector}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && open) {
+          event.preventDefault();
+          close();
+          triggerRef.current?.focus();
+        }
+      }}
+    >
+      <span id={`${id}-label`} className="block text-sm mb-1">
+        {label}
+      </span>
       <button
         ref={triggerRef}
         type="button"
@@ -99,13 +115,27 @@ const LanguagePicker: React.FC<{
         aria-controls={`${id}-options`}
         className={`${controlClass} w-full flex items-center justify-between`}
         disabled={disabled}
-        onClick={() => open ? close() : setOpen(true)}
+        onClick={() => (open ? close() : setOpen(true))}
       >
         <span id={`${id}-value`} className="truncate">
-          {options.find((option) => option.value === value)?.label || getLanguageLabel(value) || value || t("settings.general.language.chooseLanguage")}
+          {options.find((option) => option.value === value)?.label ||
+            getLanguageLabel(value) ||
+            value ||
+            t("settings.general.language.chooseLanguage")}
         </span>
-        <svg aria-hidden="true" className="w-4 h-4 ms-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        <svg
+          aria-hidden="true"
+          className="w-4 h-4 ms-2"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M19 9l-7 7-7-7"
+          />
         </svg>
       </button>
       {open && !disabled && (
@@ -118,16 +148,32 @@ const LanguagePicker: React.FC<{
               aria-expanded="true"
               aria-controls={`${id}-options`}
               aria-autocomplete="list"
-              aria-activedescendant={filtered[active] ? `${id}-option-${active}` : undefined}
+              aria-activedescendant={
+                filtered[active] ? `${id}-option-${active}` : undefined
+              }
               value={query}
-              onChange={(event) => { setQuery(event.target.value); setActive(0); }}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setActive(0);
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Escape") {
                   close();
                   triggerRef.current?.focus();
-                } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                } else if (
+                  event.key === "ArrowDown" ||
+                  event.key === "ArrowUp"
+                ) {
                   event.preventDefault();
-                  setActive((index) => Math.max(0, Math.min(filtered.length - 1, index + (event.key === "ArrowDown" ? 1 : -1))));
+                  setActive((index) =>
+                    Math.max(
+                      0,
+                      Math.min(
+                        filtered.length - 1,
+                        index + (event.key === "ArrowDown" ? 1 : -1),
+                      ),
+                    ),
+                  );
                 } else if (event.key === "Enter" && filtered[active]) {
                   event.preventDefault();
                   select(filtered[active].value);
@@ -137,7 +183,12 @@ const LanguagePicker: React.FC<{
               className="w-full px-2 py-1 text-sm bg-mid-gray/10 border border-mid-gray/40 rounded focus:outline-none focus:ring-1 focus:ring-logo-primary"
             />
           </div>
-          <div id={`${id}-options`} role="listbox" aria-labelledby={`${id}-label`} className="max-h-48 overflow-y-auto">
+          <div
+            id={`${id}-options`}
+            role="listbox"
+            aria-labelledby={`${id}-label`}
+            className="max-h-48 overflow-y-auto"
+          >
             {filtered.map((option, index) => (
               <button
                 id={`${id}-option-${index}`}
@@ -151,7 +202,11 @@ const LanguagePicker: React.FC<{
                 {option.label}
               </button>
             ))}
-            {filtered.length === 0 && <p className="px-2 py-2 text-sm text-mid-gray">{t("settings.general.language.noResults")}</p>}
+            {filtered.length === 0 && (
+              <p className="px-2 py-2 text-sm text-mid-gray">
+                {t("settings.general.language.noResults")}
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -170,24 +225,32 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
   const { t } = useTranslation();
   const { getSetting, updateSetting, isUpdating, isLoading } = useSettings();
   const currentModel = useModelStore((state) => state.currentModel);
-  const savedIntent = getSetting("recognition_language") ?? DEFAULT_RECOGNITION_LANGUAGE;
-  const intent = useMemo(() => ({
-    ...savedIntent,
-    single_language: savedIntent.single_language ?? "",
-    pair: savedIntent.pair ?? [],
-  }), [savedIntent]);
+  const savedIntent =
+    getSetting("recognition_language") ?? DEFAULT_RECOGNITION_LANGUAGE;
+  const intent = useMemo(
+    () => ({
+      ...savedIntent,
+      single_language: savedIntent.single_language ?? "",
+      pair: savedIntent.pair ?? [],
+    }),
+    [savedIntent],
+  );
   const updating = isUpdating("recognition_language");
   const [editingPair, setEditingPair] = useState(false);
   const [draftPair, setDraftPair] = useState<string[]>(intent.pair);
   const [status, setStatus] = useState<RecognitionLanguageStatus | null>(null);
-  const [previewResult, setPreviewResult] = useState<{ pairKey: string; status: RecognitionLanguageStatus } | null>(null);
+  const [previewResult, setPreviewResult] = useState<{
+    pairKey: string;
+    status: RecognitionLanguageStatus;
+  } | null>(null);
   const [previewFailed, setPreviewFailed] = useState(false);
   const [revision, setRevision] = useState(0);
   const mode = editingPair ? "pair" : intent.mode;
   const disabled = updating || isLoading;
   const savedPairKey = useRef(JSON.stringify(intent.pair));
   const draftPairKey = JSON.stringify(draftPair);
-  const preview = previewResult?.pairKey === draftPairKey ? previewResult.status : null;
+  const preview =
+    previewResult?.pairKey === draftPairKey ? previewResult.status : null;
 
   useEffect(() => {
     const key = JSON.stringify(intent.pair);
@@ -211,54 +274,118 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
       listen("models-updated", refresh),
       listen("settings-changed", refresh),
     ];
-    return () => { listeners.forEach((listener) => { void listener.then((unlisten) => unlisten()); }); };
+    return () => {
+      listeners.forEach((listener) => {
+        void listener.then((unlisten) => unlisten());
+      });
+    };
   }, []);
 
   useEffect(() => {
     let cancelled = false;
     setStatus(null);
     if (!disabled) {
-      commands.getRecognitionLanguageStatus(null).then((result) => {
-        if (!cancelled) setStatus(result);
-      }).catch(() => {
-        if (!cancelled) setStatus({ status: "unknown" });
-      });
+      commands
+        .getRecognitionLanguageStatus(null)
+        .then((result) => {
+          if (!cancelled) setStatus(result);
+        })
+        .catch(() => {
+          if (!cancelled) setStatus({ status: "unknown" });
+        });
     }
-    return () => { cancelled = true; };
-  }, [intent, currentModel, supportedLanguages, supportsLanguageDetection, disabled, revision]);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    intent,
+    currentModel,
+    supportedLanguages,
+    supportsLanguageDetection,
+    disabled,
+    revision,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
     setPreviewResult(null);
     setPreviewFailed(false);
     if (mode === "pair" && !disabled) {
-      commands.getRecognitionLanguageStatus({ ...intent, mode: "pair", pair: draftPair }).then((result) => {
-        if (!cancelled) setPreviewResult({ pairKey: JSON.stringify(draftPair), status: result });
-      }).catch(() => {
-        if (!cancelled) setPreviewFailed(true);
-      });
+      commands
+        .getRecognitionLanguageStatus({
+          ...intent,
+          mode: "pair",
+          pair: draftPair,
+        })
+        .then((result) => {
+          if (!cancelled)
+            setPreviewResult({
+              pairKey: JSON.stringify(draftPair),
+              status: result,
+            });
+        })
+        .catch(() => {
+          if (!cancelled) setPreviewFailed(true);
+        });
     }
-    return () => { cancelled = true; };
-  }, [draftPair, mode, intent, currentModel, supportedLanguages, disabled, revision]);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    draftPair,
+    mode,
+    intent,
+    currentModel,
+    supportedLanguages,
+    disabled,
+    revision,
+  ]);
 
   const availableLanguages = useMemo(() => {
-    const codes = supportedLanguages ?? LANGUAGES.filter((language) => language.value !== "auto").map((language) => language.value);
-    return [...new Set(codes)].filter((code) => code !== "auto").map((code) => ({
-      value: code,
-      label: getLanguageLabel(code) || code,
-    }));
+    const codes =
+      supportedLanguages ??
+      LANGUAGES.filter((language) => language.value !== "auto").map(
+        (language) => language.value,
+      );
+    return [...new Set(codes)]
+      .filter((code) => code !== "auto")
+      .map((code) => ({
+        value: code,
+        label: getLanguageLabel(code) || code,
+      }));
   }, [supportedLanguages]);
-  const optionsFor = (value: string) => value && !availableLanguages.some((option) => option.value === value)
-    ? [...availableLanguages, { value, label: t("settings.general.language.savedChoice", { language: getLanguageLabel(value) || value }) }]
-    : availableLanguages;
-  const reasonText = (reason: RecognitionLanguageError) => reason.code === "unsupported_candidate"
-    ? t("settings.general.language.reasons.unsupported_candidate", { language: getLanguageLabel(reason.language) || reason.language })
-    : reason.code === "model_unavailable"
-      ? t("settings.general.language.reasons.model_unavailable", { message: reason.message })
-      : t(`settings.general.language.reasons.${reason.code}`);
-  const structuralError = preview?.status === "incompatible" && (preview.reason.code === "invalid_pair" || preview.reason.code === "duplicate_candidates");
-  const canSavePair = !!preview && !structuralError && !previewFailed && !disabled;
-  const dirtyPair = editingPair || draftPair.length !== intent.pair.length || draftPair.some((code, index) => code !== intent.pair[index]);
+  const optionsFor = (value: string) =>
+    value && !availableLanguages.some((option) => option.value === value)
+      ? [
+          ...availableLanguages,
+          {
+            value,
+            label: t("settings.general.language.savedChoice", {
+              language: getLanguageLabel(value) || value,
+            }),
+          },
+        ]
+      : availableLanguages;
+  const reasonText = (reason: RecognitionLanguageError) =>
+    reason.code === "unsupported_candidate"
+      ? t("settings.general.language.reasons.unsupported_candidate", {
+          language: getLanguageLabel(reason.language) || reason.language,
+        })
+      : reason.code === "model_unavailable"
+        ? t("settings.general.language.reasons.model_unavailable", {
+            message: reason.message,
+          })
+        : t(`settings.general.language.reasons.${reason.code}`);
+  const structuralError =
+    preview?.status === "incompatible" &&
+    (preview.reason.code === "invalid_pair" ||
+      preview.reason.code === "duplicate_candidates");
+  const canSavePair =
+    !!preview && !structuralError && !previewFailed && !disabled;
+  const dirtyPair =
+    editingPair ||
+    draftPair.length !== intent.pair.length ||
+    draftPair.some((code, index) => code !== intent.pair[index]);
   const resolution = status?.status === "ready" ? status.resolution : null;
   const setMode = async (nextMode: RecognitionMode) => {
     if (nextMode === "pair") {
@@ -280,16 +407,32 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
     >
       <div className="space-y-3" data-recognition-settings>
         <fieldset disabled={disabled} className="flex flex-wrap gap-3">
-          <legend className="sr-only">{t("settings.general.language.mode")}</legend>
+          <legend className="sr-only">
+            {t("settings.general.language.mode")}
+          </legend>
           {(["auto", "single", "pair"] as const).map((option) => (
-            <label key={option} className="flex items-center gap-2 text-sm cursor-pointer">
+            <label
+              key={option}
+              className="flex items-center gap-2 text-sm cursor-pointer"
+            >
               <input
                 type="radio"
                 name="recognition-mode"
                 value={option}
                 checked={mode === option}
-                disabled={disabled || (option === "auto" && supportsLanguageSelection && !supportsLanguageDetection && intent.mode !== "auto") || (option === "single" && !supportsLanguageSelection && intent.mode !== "single")}
-                onChange={() => { void setMode(option); }}
+                disabled={
+                  disabled ||
+                  (option === "auto" &&
+                    supportsLanguageSelection &&
+                    !supportsLanguageDetection &&
+                    intent.mode !== "auto") ||
+                  (option === "single" &&
+                    !supportsLanguageSelection &&
+                    intent.mode !== "single")
+                }
+                onChange={() => {
+                  void setMode(option);
+                }}
                 className="accent-logo-primary"
               />
               {t(`settings.general.language.modes.${option}`)}
@@ -299,62 +442,175 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
         {mode === "single" && supportsLanguageSelection && (
           <LanguagePicker
             label={t("settings.general.language.modes.single")}
-            value={resolution?.mode === "single" ? resolution.language : intent.single_language}
+            value={
+              resolution?.mode === "single"
+                ? resolution.language
+                : intent.single_language
+            }
             options={optionsFor(intent.single_language)}
             disabled={disabled}
-            onSelect={(language) => { void updateSetting("recognition_language", { ...intent, mode: "single", single_language: language }); }}
+            onSelect={(language) => {
+              void updateSetting("recognition_language", {
+                ...intent,
+                mode: "single",
+                single_language: language,
+              });
+            }}
             selector="single"
           />
         )}
-        {!supportsLanguageSelection && mode !== "pair" && <p className="text-sm text-mid-gray">{t("settings.general.language.modelManaged")}</p>}
+        {!supportsLanguageSelection && mode !== "pair" && (
+          <p className="text-sm text-mid-gray">
+            {t("settings.general.language.modelManaged")}
+          </p>
+        )}
         {mode === "pair" && (
           <>
-            <p className="text-sm text-mid-gray">{t("settings.general.language.pairExplanation")}</p>
+            <p className="text-sm text-mid-gray">
+              {t("settings.general.language.pairExplanation")}
+            </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {[0, 1].map((index) => (
                 <LanguagePicker
                   key={index}
-                  label={t("settings.general.language.candidate", { number: index + 1 })}
+                  label={t("settings.general.language.candidate", {
+                    number: index + 1,
+                  })}
                   value={draftPair[index] ?? ""}
                   options={optionsFor(draftPair[index] ?? "")}
                   disabled={disabled}
-                  onSelect={(language) => setDraftPair((pair) => index === 0 ? [language, pair[1] ?? ""] : [pair[0] ?? "", language])}
+                  onSelect={(language) =>
+                    setDraftPair((pair) =>
+                      index === 0
+                        ? [language, pair[1] ?? ""]
+                        : [pair[0] ?? "", language],
+                    )
+                  }
                   selector={`candidate-${index + 1}`}
                 />
               ))}
             </div>
-            <p className="text-sm text-mid-gray">{t("settings.general.language.atomicPair")}</p>
-            <div role="status" aria-live="polite" data-recognition-preview className="text-sm">
-              {previewFailed ? t("settings.general.language.validationFailed") : preview?.status === "incompatible" ? structuralError ? reasonText(preview.reason) : t("settings.general.language.draftIncompatible", { reason: reasonText(preview.reason) }) : !preview ? t("settings.general.language.validating") : preview.status === "unknown" ? t("settings.general.language.draftPending") : null}
+            <p className="text-sm text-mid-gray">
+              {t("settings.general.language.atomicPair")}
+            </p>
+            <div
+              role="status"
+              aria-live="polite"
+              data-recognition-preview
+              className="text-sm"
+            >
+              {previewFailed
+                ? t("settings.general.language.validationFailed")
+                : preview?.status === "incompatible"
+                  ? structuralError
+                    ? reasonText(preview.reason)
+                    : t("settings.general.language.draftIncompatible", {
+                        reason: reasonText(preview.reason),
+                      })
+                  : !preview
+                    ? t("settings.general.language.validating")
+                    : preview.status === "unknown"
+                      ? t("settings.general.language.draftPending")
+                      : null}
             </div>
-            {previewFailed && <button type="button" data-recognition-action="retry-validation" className={controlClass} onClick={() => setRevision((value) => value + 1)}>{t("settings.general.language.retryValidation")}</button>}
+            {previewFailed && (
+              <button
+                type="button"
+                data-recognition-action="retry-validation"
+                className={controlClass}
+                onClick={() => setRevision((value) => value + 1)}
+              >
+                {t("settings.general.language.retryValidation")}
+              </button>
+            )}
             <div className="flex flex-wrap gap-2">
-              <button type="button" data-recognition-action="save-pair" disabled={!canSavePair || !dirtyPair} className={controlClass} onClick={async () => {
-                await updateSetting("recognition_language", { ...intent, mode: "pair", pair: draftPair });
-                const saved = getSetting("recognition_language");
-                if (saved?.mode === "pair" && saved.pair?.length === draftPair.length && saved.pair.every((code, index) => code === draftPair[index])) {
-                  setEditingPair(false);
-                }
-              }}>{t("settings.general.language.savePair")}</button>
-              {dirtyPair && <button type="button" data-recognition-action="cancel-pair" disabled={disabled} className={controlClass} onClick={() => { setDraftPair(intent.pair); setEditingPair(false); }}>{t("settings.general.language.cancelPair")}</button>}
+              <button
+                type="button"
+                data-recognition-action="save-pair"
+                disabled={!canSavePair || !dirtyPair}
+                className={controlClass}
+                onClick={async () => {
+                  await updateSetting("recognition_language", {
+                    ...intent,
+                    mode: "pair",
+                    pair: draftPair,
+                  });
+                  const saved = getSetting("recognition_language");
+                  if (
+                    saved?.mode === "pair" &&
+                    saved.pair?.length === draftPair.length &&
+                    saved.pair.every((code, index) => code === draftPair[index])
+                  ) {
+                    setEditingPair(false);
+                  }
+                }}
+              >
+                {t("settings.general.language.savePair")}
+              </button>
+              {dirtyPair && (
+                <button
+                  type="button"
+                  data-recognition-action="cancel-pair"
+                  disabled={disabled}
+                  className={controlClass}
+                  onClick={() => {
+                    setDraftPair(intent.pair);
+                    setEditingPair(false);
+                  }}
+                >
+                  {t("settings.general.language.cancelPair")}
+                </button>
+              )}
             </div>
-            <p className="text-sm text-mid-gray">{t("settings.general.language.detectionLimits")}</p>
-            <p className="text-sm text-mid-gray">{t("settings.general.language.translationIndependent")}</p>
+            <p className="text-sm text-mid-gray">
+              {t("settings.general.language.detectionLimits")}
+            </p>
+            <p className="text-sm text-mid-gray">
+              {t("settings.general.language.translationIndependent")}
+            </p>
           </>
         )}
-        <div role="status" aria-live="polite" data-recognition-status className="text-sm">
+        <div
+          role="status"
+          aria-live="polite"
+          data-recognition-status
+          className="text-sm"
+        >
           {status?.status === "incompatible" ? (
-            <p className="text-red-500">{t("settings.general.language.blocked", { reason: reasonText(status.reason) })}</p>
-          ) : intent.mode === "pair" && (!status || status.status === "unknown") ? (
+            <p className="text-red-500">
+              {t("settings.general.language.blocked", {
+                reason: reasonText(status.reason),
+              })}
+            </p>
+          ) : intent.mode === "pair" &&
+            (!status || status.status === "unknown") ? (
             <p>{t("settings.general.language.pending")}</p>
           ) : intent.mode === "pair" && resolution?.mode === "pair" ? (
-            <p>{t("settings.general.language.readyPair", { languages: resolution.languages.map((code) => getLanguageLabel(code) || code).join(" / ") })}</p>
+            <p>
+              {t("settings.general.language.readyPair", {
+                languages: resolution.languages
+                  .map((code) => getLanguageLabel(code) || code)
+                  .join(" / "),
+              })}
+            </p>
           ) : null}
         </div>
-        {(intent.mode === "pair" && status?.status !== "ready" || mode === "pair" && preview?.status !== "ready") && (
+        {((intent.mode === "pair" && status?.status !== "ready") ||
+          (mode === "pair" && preview?.status !== "ready")) && (
           <div className="space-y-2">
-            <p className="text-sm text-mid-gray">{t("settings.general.language.recovery")}</p>
-            {onChooseModel && <button type="button" data-recognition-action="choose-model" className={controlClass} onClick={onChooseModel}>{t("settings.general.language.chooseModel")}</button>}
+            <p className="text-sm text-mid-gray">
+              {t("settings.general.language.recovery")}
+            </p>
+            {onChooseModel && (
+              <button
+                type="button"
+                data-recognition-action="choose-model"
+                className={controlClass}
+                onClick={onChooseModel}
+              >
+                {t("settings.general.language.chooseModel")}
+              </button>
+            )}
           </div>
         )}
       </div>
