@@ -102,6 +102,11 @@
               # updated every time a git dependency changed in Cargo.lock.
               # Safe for standalone flakes (not allowed in nixpkgs, it is needed something like crate2nix).
               allowBuiltinFetchGit = true;
+              # importCargoLock copies the complete root transcribe-cpp-sys
+              # package (including CMake/include/src/ggml); only the safe Rust
+              # wrapper is a nested workspace package. Both lock entries share
+              # one exact git revision, so no separate native-source fetch or
+              # registry/prebuilt replacement belongs here.
             };
 
             postPatch = ''
