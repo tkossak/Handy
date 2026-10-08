@@ -147,11 +147,26 @@ pub enum RecognitionLanguageError {
 impl std::fmt::Display for RecognitionLanguageError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::InvalidPair => write!(f, "Language pair requires exactly two non-empty language candidates"),
-            Self::DuplicateCandidates => write!(f, "Language pair candidates must be distinct recognition languages"),
-            Self::PairUnsupported => write!(f, "The loaded model does not support pair-constrained language detection"),
-            Self::DetectionUnsupported => write!(f, "The loaded model does not support automatic language detection"),
-            Self::UnsupportedCandidate { language } => write!(f, "The loaded model does not support recognition candidate '{language}'"),
+            Self::InvalidPair => write!(
+                f,
+                "Language pair requires exactly two non-empty language candidates"
+            ),
+            Self::DuplicateCandidates => write!(
+                f,
+                "Language pair candidates must be distinct recognition languages"
+            ),
+            Self::PairUnsupported => write!(
+                f,
+                "The loaded model does not support pair-constrained language detection"
+            ),
+            Self::DetectionUnsupported => write!(
+                f,
+                "The loaded model does not support automatic language detection"
+            ),
+            Self::UnsupportedCandidate { language } => write!(
+                f,
+                "The loaded model does not support recognition candidate '{language}'"
+            ),
             Self::ModelUnavailable { message } => f.write_str(message),
         }
     }
@@ -172,7 +187,9 @@ impl RecognitionLanguageStatus {
         match self {
             Self::Ready { resolution } => Ok(resolution),
             Self::Incompatible { reason } => Err(reason.to_string()),
-            Self::Unknown => Err("Recognition language compatibility is pending loaded model capabilities".into()),
+            Self::Unknown => Err(
+                "Recognition language compatibility is pending loaded model capabilities".into(),
+            ),
         }
     }
 }
@@ -187,7 +204,11 @@ pub fn resolve_recognition_language(
 ) -> RecognitionLanguageStatus {
     if intent.mode != RecognitionMode::Pair {
         let language = effective_language(
-            if intent.mode == RecognitionMode::Auto { "auto" } else { &intent.single_language },
+            if intent.mode == RecognitionMode::Auto {
+                "auto"
+            } else {
+                &intent.single_language
+            },
             supported_languages,
             supports_language_detection,
         );
@@ -195,14 +216,19 @@ pub fn resolve_recognition_language(
             resolution: if language == "auto" {
                 RecognitionResolution::Auto
             } else {
-                RecognitionResolution::Single { language: language.to_string() }
+                RecognitionResolution::Single {
+                    language: language.to_string(),
+                }
             },
         };
     }
 
     let incompatible = |reason| RecognitionLanguageStatus::Incompatible { reason };
     if intent.pair.len() != 2
-        || intent.pair.iter().any(|candidate| candidate.trim().is_empty() || candidate == "auto")
+        || intent
+            .pair
+            .iter()
+            .any(|candidate| candidate.trim().is_empty() || candidate == "auto")
     {
         return incompatible(RecognitionLanguageError::InvalidPair);
     }
@@ -232,9 +258,10 @@ pub fn resolve_recognition_language(
     }
     let mut languages = [a.clone(), b.clone()];
     languages.sort_unstable();
-    RecognitionLanguageStatus::Ready { resolution: RecognitionResolution::Pair { languages } }
+    RecognitionLanguageStatus::Ready {
+        resolution: RecognitionResolution::Pair { languages },
+    }
 }
-
 
 fn canonicalize_supported_languages(languages: Vec<String>) -> Vec<String> {
     let mut seen = HashSet::new();
@@ -2934,7 +2961,10 @@ mod tests {
         crate::settings::RecognitionLanguage {
             mode: crate::settings::RecognitionMode::Pair,
             single_language: "de".into(),
-            pair: candidates.iter().map(|candidate| (*candidate).into()).collect(),
+            pair: candidates
+                .iter()
+                .map(|candidate| (*candidate).into())
+                .collect(),
         }
     }
 
@@ -2988,19 +3018,41 @@ mod tests {
 
     #[test]
     fn recognition_pair_rejects_missing_duplicate_alias_and_script_candidates() {
-        let supported = ["en", "pl", "nb", "no", "fil", "tl", "zh-Hans", "zh-Hant"]
-            .map(String::from);
-        for candidates in [vec![], vec!["en"], vec!["en", ""], vec!["auto", "en"], vec!["en", "pl", "no"]] {
+        let supported =
+            ["en", "pl", "nb", "no", "fil", "tl", "zh-Hans", "zh-Hant"].map(String::from);
+        for candidates in [
+            vec![],
+            vec!["en"],
+            vec!["en", ""],
+            vec!["auto", "en"],
+            vec!["en", "pl", "no"],
+        ] {
             assert_eq!(
-                resolve_recognition_language(&pair_intent(&candidates), &supported, true, Some(true)),
+                resolve_recognition_language(
+                    &pair_intent(&candidates),
+                    &supported,
+                    true,
+                    Some(true)
+                ),
                 RecognitionLanguageStatus::Incompatible {
                     reason: RecognitionLanguageError::InvalidPair
                 }
             );
         }
-        for candidates in [["en", "en"], ["nb", "no"], ["fil", "tl"], ["zh-Hans", "zh-Hant"], ["en-US", "en-GB"]] {
+        for candidates in [
+            ["en", "en"],
+            ["nb", "no"],
+            ["fil", "tl"],
+            ["zh-Hans", "zh-Hant"],
+            ["en-US", "en-GB"],
+        ] {
             assert_eq!(
-                resolve_recognition_language(&pair_intent(&candidates), &supported, true, Some(true)),
+                resolve_recognition_language(
+                    &pair_intent(&candidates),
+                    &supported,
+                    true,
+                    Some(true)
+                ),
                 RecognitionLanguageStatus::Incompatible {
                     reason: RecognitionLanguageError::DuplicateCandidates
                 }
@@ -3027,7 +3079,9 @@ mod tests {
             assert_eq!(
                 resolve_recognition_language(&intent, &supported, true, Some(true)),
                 RecognitionLanguageStatus::Incompatible {
-                    reason: RecognitionLanguageError::UnsupportedCandidate { language: "pl".into() }
+                    reason: RecognitionLanguageError::UnsupportedCandidate {
+                        language: "pl".into()
+                    }
                 }
             );
         }
@@ -3037,8 +3091,14 @@ mod tests {
             resolve_recognition_language(&intent, &[], false, None),
             RecognitionLanguageStatus::Unknown
         );
-        assert!(resolve_recognition_language(&intent, &[], false, None).into_result().is_err());
-        assert!(resolve_recognition_language(&intent, &[], false, Some(false)).into_result().is_err());
+        assert!(resolve_recognition_language(&intent, &[], false, None)
+            .into_result()
+            .is_err());
+        assert!(
+            resolve_recognition_language(&intent, &[], false, Some(false))
+                .into_result()
+                .is_err()
+        );
         assert_eq!(intent, pair_intent(&["pl", "en"]));
     }
 
@@ -3049,7 +3109,9 @@ mod tests {
         assert_eq!(
             resolve_recognition_language(&intent, &["en-US".into()], false, Some(false)),
             RecognitionLanguageStatus::Ready {
-                resolution: RecognitionResolution::Single { language: "en-US".into() }
+                resolution: RecognitionResolution::Single {
+                    language: "en-US".into()
+                }
             }
         );
         intent.mode = crate::settings::RecognitionMode::Single;
@@ -3057,20 +3119,27 @@ mod tests {
         assert_eq!(
             resolve_recognition_language(&intent, &["pt".into(), "en".into()], true, None),
             RecognitionLanguageStatus::Ready {
-                resolution: RecognitionResolution::Single { language: "pt".into() }
+                resolution: RecognitionResolution::Single {
+                    language: "pt".into()
+                }
             }
         );
         assert_eq!(
             resolve_recognition_language(&intent, &["en".into()], true, None),
-            RecognitionLanguageStatus::Ready { resolution: RecognitionResolution::Auto }
+            RecognitionLanguageStatus::Ready {
+                resolution: RecognitionResolution::Auto
+            }
         );
         assert_eq!(intent.pair, ["pl", "en"]);
         intent.mode = crate::settings::RecognitionMode::Pair;
-        let incompatible = resolve_recognition_language(&intent, &["en".into()], false, Some(false));
+        let incompatible =
+            resolve_recognition_language(&intent, &["en".into()], false, Some(false));
         assert!(incompatible.into_result().is_err());
         assert!(matches!(
             resolve_recognition_language(&intent, &["en".into(), "pl".into()], true, Some(true)),
-            RecognitionLanguageStatus::Ready { resolution: RecognitionResolution::Pair { .. } }
+            RecognitionLanguageStatus::Ready {
+                resolution: RecognitionResolution::Pair { .. }
+            }
         ));
         assert_eq!(intent.single_language, "pt-BR");
         assert_eq!(intent.pair, ["pl", "en"]);

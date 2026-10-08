@@ -1,5 +1,5 @@
-use crate::managers::transcription::TranscriptionManager;
 use crate::managers::model::{RecognitionLanguageError, RecognitionLanguageStatus};
+use crate::managers::transcription::TranscriptionManager;
 use crate::settings::{get_settings, write_settings, ModelUnloadTimeout, RecognitionLanguage};
 use serde::Serialize;
 use specta::Type;
@@ -35,7 +35,7 @@ pub fn get_model_load_status(
 #[specta::specta]
 pub async fn get_recognition_language_status(
     recognition_language: Option<RecognitionLanguage>,
-    transcription_manager: State<Arc<TranscriptionManager>>,
+    transcription_manager: State<'_, Arc<TranscriptionManager>>,
 ) -> RecognitionLanguageStatus {
     let manager = Arc::clone(transcription_manager.inner());
     tauri::async_runtime::spawn_blocking(move || {

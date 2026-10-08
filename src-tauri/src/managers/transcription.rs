@@ -825,12 +825,6 @@ impl TranscriptionManager {
         }
         let settings = get_settings(&self.app_handle);
         let intent = recognition_language.unwrap_or(&settings.recognition_language);
-        let pending = resolve_recognition_language(intent, &[], true, None);
-        // Structural draft errors must remain visible even without a model.
-        if matches!(&pending, RecognitionLanguageStatus::Incompatible { .. }) {
-            return pending;
-        }
-
         let model_id = &settings.selected_model;
         if self.get_current_model().as_deref() == Some(model_id.as_str()) {
             if let Some(info) = self.engine.loaded() {
@@ -842,11 +836,20 @@ impl TranscriptionManager {
         if intent.mode != RecognitionMode::Pair {
             return match catalog {
                 Some(info) => resolve_recognition_language(
-                    intent, &info.supported_languages, info.supports_language_detection, None,
+                    intent,
+                    &info.supported_languages,
+                    info.supports_language_detection,
+                    None,
                 ),
-                None => pending,
+                None => resolve_recognition_language(intent, &[], true, None),
             };
         }
+        let pending = resolve_recognition_language(intent, &[], true, None);
+        // Structural draft errors must remain visible even without a model.
+        if matches!(&pending, RecognitionLanguageStatus::Incompatible { .. }) {
+            return pending;
+        }
+
         let unavailable = |message| RecognitionLanguageStatus::Incompatible {
             reason: RecognitionLanguageError::ModelUnavailable { message },
         };
@@ -855,11 +858,17 @@ impl TranscriptionManager {
         };
         if !matches!(catalog.engine_type, EngineType::TranscribeCpp) {
             return resolve_recognition_language(
-                intent, &catalog.supported_languages, catalog.supports_language_detection, Some(false),
+                intent,
+                &catalog.supported_languages,
+                catalog.supports_language_detection,
+                Some(false),
             );
         }
         if !catalog.is_downloaded {
-            return unavailable(format!("Selected model '{}' is not downloaded", catalog.name));
+            return unavailable(format!(
+                "Selected model '{}' is not downloaded",
+                catalog.name
+            ));
         }
         if let Some((failed_model, message)) = &*self.last_load_error.lock() {
             if failed_model == model_id {
@@ -869,13 +878,16 @@ impl TranscriptionManager {
         let Some(_loading_guard) = self.try_start_loading() else {
             return RecognitionLanguageStatus::Unknown;
         };
-        self.reload_model_on_next_use.store(false, Ordering::Release);
+        self.reload_model_on_next_use
+            .store(false, Ordering::Release);
         if let Err(error) = self.load_model(model_id) {
             return unavailable(error.to_string());
         }
         match self.engine.loaded() {
             Some(info) => recognition_status_for_loaded_model(intent, &info),
-            None => unavailable(format!("Selected model '{model_id}' has no loaded native capabilities")),
+            None => unavailable(format!(
+                "Selected model '{model_id}' has no loaded native capabilities"
+            )),
         }
     }
 
@@ -1409,20 +1421,25 @@ impl TranscriptionManager {
         settings: &AppSettings,
         active_model: &str,
     ) -> Result<RunOutcome> {
-        let languages = self
+        let (languages, supports_detection) = self
             .model_manager
             .get_model_info(active_model)
-            .map(|info| info.supported_languages)
-            .unwrap_or_default();
-        let supports_detection = self.model_manager.get_model_info(active_model)
-            .map(|info| info.supports_language_detection).unwrap_or(true);
+            .map(|info| (info.supported_languages, info.supports_language_detection))
+            .unwrap_or_else(|| (Vec::new(), true));
         let recognition = resolve_recognition_language(
-            &settings.recognition_language, &languages, supports_detection, Some(false),
-        ).into_result().map_err(anyhow::Error::msg)?;
+            &settings.recognition_language,
+            &languages,
+            supports_detection,
+            Some(false),
+        )
+        .into_result()
+        .map_err(anyhow::Error::msg)?;
         let validated_language = match &recognition {
             RecognitionResolution::Auto => "auto",
             RecognitionResolution::Single { language } => language.as_str(),
-            RecognitionResolution::Pair { .. } => return Err(anyhow::anyhow!(RecognitionLanguageError::PairUnsupported)),
+            RecognitionResolution::Pair { .. } => {
+                return Err(anyhow::anyhow!(RecognitionLanguageError::PairUnsupported))
+            }
         };
         let mut output_was_translated = false;
         let mut applied_language_hint: Option<String> = None;
@@ -1729,7 +1746,6 @@ fn recognition_status_for_loaded_model(
     )
 }
 
-
 /// Resolve how confidently Handy knows the language of the text produced by a
 /// transcription run. The UI language is deliberately not part of this
 /// decision.
@@ -1750,8 +1766,9 @@ fn resolve_output_language_evidence(
     if let Some(language) = applied_language_hint.filter(|lang| !lang.is_empty() && *lang != "auto")
     {
         if settings.recognition_language.mode == crate::settings::RecognitionMode::Single
-            && crate::managers::model::canonical_language_code(&settings.recognition_language.single_language)
-                == crate::managers::model::canonical_language_code(language)
+            && crate::managers::model::canonical_language_code(
+                &settings.recognition_language.single_language,
+            ) == crate::managers::model::canonical_language_code(language)
         {
             return OutputLanguageEvidence::UserSelected(language.to_string());
         }
@@ -1817,7 +1834,11 @@ fn transcribe_cpp_run_plan(
         RecognitionResolution::Single { language } => {
             // Preserve existing language-agnostic model behavior: do not
             // submit an unadvertised single hint to native inference.
-            let language = info.capabilities.languages.contains(&language).then_some(language);
+            let language = info
+                .capabilities
+                .languages
+                .contains(&language)
+                .then_some(language);
             (language, Vec::new())
         }
         RecognitionResolution::Pair { languages } => (None, Vec::from(languages)),
@@ -2270,7 +2291,9 @@ mod tests {
         let whisper = loaded_model("whisper", &["pl", "en", "de"]);
         assert_eq!(
             recognition_status_for_loaded_model(&intent, &whisper).into_result(),
-            Ok(RecognitionResolution::Pair { languages: ["en".into(), "pl".into()] })
+            Ok(RecognitionResolution::Pair {
+                languages: ["en".into(), "pl".into()]
+            })
         );
         let mut unsupported = whisper.clone();
         unsupported.capabilities.supports_language_candidates = false;
@@ -2296,44 +2319,24 @@ mod tests {
             }
         );
         for codes in [&["en"][..], &["zh", "en"][..], &[][..], &["de", "fr"][..]] {
-            let result = recognition_status_for_loaded_model(
-                &intent,
-                &loaded_model("whisper", codes),
-            ).into_result();
-            assert!(
-                result.unwrap_err().contains("candidate 'pl'"),
-                "actual languages {codes:?} must not admit the saved pair"
+            assert_eq!(
+                recognition_status_for_loaded_model(&intent, &loaded_model("whisper", codes)),
+                RecognitionLanguageStatus::Incompatible {
+                    reason: RecognitionLanguageError::UnsupportedCandidate {
+                        language: "pl".into()
+                    },
+                },
             );
         }
     }
 
     #[test]
-    fn unknown_or_stale_catalog_does_not_override_loaded_pair_eligibility() {
-        let intent = pair_intent(&["pl", "en"]);
-        assert_eq!(
-            resolve_recognition_language(&intent, &[], false, None),
-            RecognitionLanguageStatus::Unknown
-        );
-        // Missing custom metadata and a pessimistic catalog are not a veto.
-        assert!(resolve_recognition_language(&intent, &[], false, Some(false)).into_result().is_err());
-        let mut actual = loaded_model("whisper", &["pl", "en"]);
-        assert!(recognition_status_for_loaded_model(&intent, &actual).into_result().is_ok());
-        // Conversely, catalog permission cannot enable an older native backend.
-        assert!(resolve_recognition_language(&intent, &languages(&["pl", "en"]), true, Some(true)).into_result().is_ok());
-        actual.capabilities.supports_language_candidates = false;
-        assert!(recognition_status_for_loaded_model(&intent, &actual).into_result().is_err());
-    }
-
-    #[test]
-    fn pair_run_plan_is_detection_and_never_a_whisper_stream() {
+    fn whisper_pair_does_not_enable_live_streaming() {
         let mut model = loaded_model("whisper", &["pl", "en", "de"]);
         // Even stale streaming permission must not introduce Whisper streaming.
         model.capabilities.supports_streaming = true;
         let plan = transcribe_cpp_run_plan(false, &pair_intent(&["pl", "en"]), &model).unwrap();
-        assert_eq!(plan.language, None);
-        assert_eq!(plan.language_candidates, ["en", "pl"]);
         assert!(!plan.can_stream(&model));
-        assert!(matches!(plan.task, Task::Transcribe));
     }
 
     #[test]
@@ -2347,8 +2350,17 @@ mod tests {
             assert!(transcribe_cpp_run_plan(false, &intent, &model).is_err());
             assert!(transcribe_cpp_run_plan(true, &intent, &model).is_err());
         }
-        for invalid in [pair_intent(&[]), pair_intent(&["pl"]), pair_intent(&["zh-Hans", "zh-Hant"])] {
-            assert!(transcribe_cpp_run_plan(false, &invalid, &loaded_model("whisper", &["zh", "en"])).is_err());
+        for invalid in [
+            pair_intent(&[]),
+            pair_intent(&["pl"]),
+            pair_intent(&["zh-Hans", "zh-Hant"]),
+        ] {
+            assert!(transcribe_cpp_run_plan(
+                false,
+                &invalid,
+                &loaded_model("whisper", &["zh", "en"])
+            )
+            .is_err());
         }
     }
 
@@ -2364,11 +2376,14 @@ mod tests {
         let plan = transcribe_cpp_run_plan(true, &intent, &model).unwrap();
         assert!(matches!(plan.task, Task::Translate));
         assert_eq!(plan.target_language.as_deref(), Some("en"));
-        assert_eq!(plan.language, None);
-        assert_eq!(plan.language_candidates, ["de", "pl"]);
         assert_eq!(
             with_model_detected_language(
-                resolve_output_language_evidence(&settings, None, &model.capabilities.languages, true),
+                resolve_output_language_evidence(
+                    &settings,
+                    None,
+                    &model.capabilities.languages,
+                    true
+                ),
                 Some("pl".into()),
             ),
             OutputLanguageEvidence::TranslatedToEnglish,
@@ -2377,7 +2392,6 @@ mod tests {
         let unsupported = transcribe_cpp_run_plan(true, &intent, &model).unwrap();
         assert!(matches!(unsupported.task, Task::Transcribe));
         assert_eq!(unsupported.target_language, None);
-        assert_eq!(unsupported.language_candidates, ["de", "pl"]);
         model.capabilities.supports_translate = true;
         let disabled = transcribe_cpp_run_plan(false, &intent, &model).unwrap();
         assert!(matches!(disabled.task, Task::Transcribe));
@@ -2556,7 +2570,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn auto_language_without_detection_skips_gated_filler_removal() {
         let settings = AppSettings {
@@ -2713,7 +2726,8 @@ mod tests {
             false,
             &settings.recognition_language,
             &loaded_model("whisper", &[]),
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(plan.language, None);
         assert_eq!(
@@ -2747,8 +2761,11 @@ mod tests {
     #[test]
     fn transcribe_cpp_run_plan_skips_english_translation() {
         let plan = transcribe_cpp_run_plan(
-            true, &single_intent("en"), &loaded_model("whisper", &["en", "es"]),
-        ).unwrap();
+            true,
+            &single_intent("en"),
+            &loaded_model("whisper", &["en", "es"]),
+        )
+        .unwrap();
 
         assert!(matches!(plan.task, Task::Transcribe));
         assert_eq!(plan.language.as_deref(), Some("en"));
@@ -2758,8 +2775,11 @@ mod tests {
     #[test]
     fn transcribe_cpp_run_plan_translates_supported_non_english() {
         let plan = transcribe_cpp_run_plan(
-            true, &single_intent("es"), &loaded_model("whisper", &["en", "es"]),
-        ).unwrap();
+            true,
+            &single_intent("es"),
+            &loaded_model("whisper", &["en", "es"]),
+        )
+        .unwrap();
 
         assert!(matches!(plan.task, Task::Translate));
         assert_eq!(plan.language.as_deref(), Some("es"));

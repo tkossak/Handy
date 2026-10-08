@@ -365,7 +365,10 @@ impl<'de> Deserialize<'de> for RecognitionLanguage {
         D: Deserializer<'de>,
     {
         let value = serde_json::Value::deserialize(deserializer)?;
-        let blocked = Self { mode: RecognitionMode::Pair, ..Self::default() };
+        let blocked = Self {
+            mode: RecognitionMode::Pair,
+            ..Self::default()
+        };
         let serde_json::Value::Object(mut fields) = value else {
             return Ok(blocked);
         };
@@ -392,10 +395,13 @@ impl<'de> Deserialize<'de> for RecognitionLanguage {
                 .collect(),
             _ => Vec::new(),
         };
-        Ok(Self { mode, single_language, pair })
+        Ok(Self {
+            mode,
+            single_language,
+            pair,
+        })
     }
 }
-
 
 #[derive(Clone, Serialize, Deserialize, Type)]
 #[serde(transparent)]
@@ -633,7 +639,6 @@ fn default_show_whats_new_on_update() -> bool {
 fn default_whats_new_last_seen_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
-
 
 fn default_overlay_position() -> OverlayPosition {
     // Position only matters when the overlay is shown; whether it shows at all is
@@ -1688,14 +1693,54 @@ mod tests {
     #[test]
     fn recognition_migration_preserves_legacy_behavior_and_unrelated_settings() {
         for (legacy, mode, language, script) in [
-            ("auto", RecognitionMode::Auto, "", ChineseScript::AsTranscribed),
-            ("en-US", RecognitionMode::Single, "en-US", ChineseScript::AsTranscribed),
-            ("nb", RecognitionMode::Single, "nb", ChineseScript::AsTranscribed),
-            ("no", RecognitionMode::Single, "no", ChineseScript::AsTranscribed),
-            ("fil", RecognitionMode::Single, "fil", ChineseScript::AsTranscribed),
-            ("tl", RecognitionMode::Single, "tl", ChineseScript::AsTranscribed),
-            ("zh-Hans", RecognitionMode::Single, "zh", ChineseScript::Simplified),
-            ("zh-Hant", RecognitionMode::Single, "zh", ChineseScript::Traditional),
+            (
+                "auto",
+                RecognitionMode::Auto,
+                "",
+                ChineseScript::AsTranscribed,
+            ),
+            (
+                "en-US",
+                RecognitionMode::Single,
+                "en-US",
+                ChineseScript::AsTranscribed,
+            ),
+            (
+                "nb",
+                RecognitionMode::Single,
+                "nb",
+                ChineseScript::AsTranscribed,
+            ),
+            (
+                "no",
+                RecognitionMode::Single,
+                "no",
+                ChineseScript::AsTranscribed,
+            ),
+            (
+                "fil",
+                RecognitionMode::Single,
+                "fil",
+                ChineseScript::AsTranscribed,
+            ),
+            (
+                "tl",
+                RecognitionMode::Single,
+                "tl",
+                ChineseScript::AsTranscribed,
+            ),
+            (
+                "zh-Hans",
+                RecognitionMode::Single,
+                "zh",
+                ChineseScript::Simplified,
+            ),
+            (
+                "zh-Hant",
+                RecognitionMode::Single,
+                "zh",
+                ChineseScript::Traditional,
+            ),
         ] {
             let raw = serde_json::json!({
                 "selected_language": legacy,
@@ -1719,10 +1764,18 @@ mod tests {
             };
             let expected = match legacy {
                 "auto" => RecognitionResolution::Auto,
-                "en-US" => RecognitionResolution::Single { language: "en-US".into() },
-                "nb" | "no" => RecognitionResolution::Single { language: "nb".into() },
-                "fil" | "tl" => RecognitionResolution::Single { language: "fil".into() },
-                "zh-Hans" | "zh-Hant" => RecognitionResolution::Single { language: "zh".into() },
+                "en-US" => RecognitionResolution::Single {
+                    language: "en-US".into(),
+                },
+                "nb" | "no" => RecognitionResolution::Single {
+                    language: "nb".into(),
+                },
+                "fil" | "tl" => RecognitionResolution::Single {
+                    language: "fil".into(),
+                },
+                "zh-Hans" | "zh-Hant" => RecognitionResolution::Single {
+                    language: "zh".into(),
+                },
                 _ => unreachable!(),
             };
             assert_eq!(
@@ -1732,7 +1785,9 @@ mod tests {
                     true,
                     Some(false),
                 ),
-                RecognitionLanguageStatus::Ready { resolution: expected }
+                RecognitionLanguageStatus::Ready {
+                    resolution: expected
+                }
             );
 
             let saved = serde_json::to_value(&settings).unwrap();
@@ -1822,7 +1877,9 @@ mod tests {
                     &["pl".into(), "en".into()],
                     true,
                     Some(true),
-                ).into_result().unwrap_err(),
+                )
+                .into_result()
+                .unwrap_err(),
                 "Language pair requires exactly two non-empty language candidates"
             );
             let saved = serde_json::to_value(&settings).unwrap();
@@ -1874,7 +1931,10 @@ mod tests {
         let raw = serde_json::json!({});
         let mut settings: AppSettings = serde_json::from_value(raw.clone()).unwrap();
         apply_settings_migrations(&mut settings, &raw);
-        assert_eq!(settings.recognition_language, RecognitionLanguage::default());
+        assert_eq!(
+            settings.recognition_language,
+            RecognitionLanguage::default()
+        );
         assert_eq!(settings.chinese_script, ChineseScript::AsTranscribed);
     }
 
