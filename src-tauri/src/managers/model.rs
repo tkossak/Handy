@@ -141,6 +141,7 @@ pub enum RecognitionLanguageError {
     PairUnsupported,
     DetectionUnsupported,
     UnsupportedCandidate { language: String },
+    ModelUnavailable { message: String },
 }
 
 impl std::fmt::Display for RecognitionLanguageError {
@@ -151,6 +152,7 @@ impl std::fmt::Display for RecognitionLanguageError {
             Self::PairUnsupported => write!(f, "The loaded model does not support pair-constrained language detection"),
             Self::DetectionUnsupported => write!(f, "The loaded model does not support automatic language detection"),
             Self::UnsupportedCandidate { language } => write!(f, "The loaded model does not support recognition candidate '{language}'"),
+            Self::ModelUnavailable { message } => f.write_str(message),
         }
     }
 }
@@ -2934,6 +2936,29 @@ mod tests {
             single_language: "de".into(),
             pair: candidates.iter().map(|candidate| (*candidate).into()).collect(),
         }
+    }
+
+    #[test]
+    fn unavailable_model_status_blocks_with_useful_load_error() {
+        let status = RecognitionLanguageStatus::Incompatible {
+            reason: RecognitionLanguageError::ModelUnavailable {
+                message: "Failed to load custom Whisper: checkpoint is unreadable".into(),
+            },
+        };
+        assert_eq!(
+            status.clone().into_result().unwrap_err(),
+            "Failed to load custom Whisper: checkpoint is unreadable",
+        );
+        assert_eq!(
+            serde_json::to_value(status).unwrap(),
+            serde_json::json!({
+                "status": "incompatible",
+                "reason": {
+                    "code": "model_unavailable",
+                    "message": "Failed to load custom Whisper: checkpoint is unreadable"
+                }
+            }),
+        );
     }
 
     #[test]
