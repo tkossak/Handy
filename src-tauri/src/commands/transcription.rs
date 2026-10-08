@@ -4,7 +4,7 @@ use crate::settings::{get_settings, write_settings, ModelUnloadTimeout, Recognit
 use serde::Serialize;
 use specta::Type;
 use std::sync::Arc;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 #[derive(Serialize, Type)]
 pub struct ModelLoadStatus {
@@ -35,9 +35,9 @@ pub fn get_model_load_status(
 #[specta::specta]
 pub async fn get_recognition_language_status(
     recognition_language: Option<RecognitionLanguage>,
-    transcription_manager: State<'_, Arc<TranscriptionManager>>,
+    app: AppHandle,
 ) -> RecognitionLanguageStatus {
-    let manager = Arc::clone(transcription_manager.inner());
+    let manager = Arc::clone(app.state::<Arc<TranscriptionManager>>().inner());
     tauri::async_runtime::spawn_blocking(move || {
         manager.recognition_language_status(recognition_language.as_ref())
     })
