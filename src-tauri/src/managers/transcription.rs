@@ -813,16 +813,20 @@ impl TranscriptionManager {
 
     /// Presentation uses the same policy as run planning. Pair capability is
     /// pending until the loaded native capability integration supplies it.
-    pub fn recognition_language_status(&self) -> RecognitionLanguageStatus {
+    pub fn recognition_language_status(
+        &self,
+        proposed_intent: Option<&crate::settings::RecognitionLanguage>,
+    ) -> RecognitionLanguageStatus {
         let settings = get_settings(&self.app_handle);
+        let intent = proposed_intent.unwrap_or(&settings.recognition_language);
         match self.model_manager.get_model_info(&settings.selected_model) {
             Some(info) => resolve_recognition_language(
-                &settings.recognition_language,
+                intent,
                 &info.supported_languages,
                 info.supports_language_detection,
                 None,
             ),
-            None => resolve_recognition_language(&settings.recognition_language, &[], true, None),
+            None => resolve_recognition_language(intent, &[], true, None),
         }
     }
 

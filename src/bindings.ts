@@ -843,8 +843,8 @@ async setSelectedChannel(channel: number | null) : Promise<Result<null, string>>
 async setModelUnloadTimeout(timeout: ModelUnloadTimeout) : Promise<void> {
     await TAURI_INVOKE("set_model_unload_timeout", { timeout });
 },
-async getRecognitionLanguageStatus() : Promise<RecognitionLanguageStatus> {
-    return await TAURI_INVOKE("get_recognition_language_status");
+async getRecognitionLanguageStatus(recognitionLanguage: RecognitionLanguage | null) : Promise<RecognitionLanguageStatus> {
+    return await TAURI_INVOKE("get_recognition_language_status", { recognitionLanguage });
 },
 async getModelLoadStatus() : Promise<Result<ModelLoadStatus, string>> {
     try {
