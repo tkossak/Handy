@@ -31,6 +31,9 @@ pub fn get_model_load_status(
     })
 }
 
+/// Validate an optional preview intent, or the saved intent when omitted.
+/// Loading and capability probing run in the background; this does not save
+/// choices, and pending or incompatible status does not permit transcription.
 #[tauri::command]
 #[specta::specta]
 pub async fn get_recognition_language_status(

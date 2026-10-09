@@ -346,6 +346,9 @@ pub enum RecognitionMode {
     Pair,
 }
 
+/// Persisted recognition intent, including inactive single-language and pair choices.
+/// Switching modes or models retains those choices; an invalid active pair is
+/// reported by the resolver rather than silently removing its restriction.
 #[derive(Serialize, Debug, Clone, PartialEq, Eq, Type, Default)]
 pub struct RecognitionLanguage {
     pub mode: RecognitionMode,
@@ -1927,15 +1930,21 @@ mod tests {
     }
 
     #[test]
-    fn absent_recognition_settings_never_opt_in_to_pair() {
+    fn migrated_empty_settings_allow_unrestricted_multilingual_recognition() {
         let raw = serde_json::json!({});
         let mut settings: AppSettings = serde_json::from_value(raw.clone()).unwrap();
         apply_settings_migrations(&mut settings, &raw);
         assert_eq!(
-            settings.recognition_language,
-            RecognitionLanguage::default()
+            crate::managers::model::resolve_recognition_language(
+                &settings.recognition_language,
+                &["pl".into(), "en".into()],
+                true,
+                Some(true),
+            ),
+            crate::managers::model::RecognitionLanguageStatus::Ready {
+                resolution: crate::managers::model::RecognitionResolution::Auto,
+            }
         );
-        assert_eq!(settings.chinese_script, ChineseScript::AsTranscribed);
     }
 
     #[test]

@@ -133,6 +133,8 @@ pub enum RecognitionResolution {
     Pair { languages: [String; 2] },
 }
 
+/// Explicit reasons an active recognition restriction cannot be used, including
+/// model loading or validation failures. Reporting an error does not alter intent.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(tag = "code", rename_all = "snake_case")]
 pub enum RecognitionLanguageError {
@@ -183,6 +185,8 @@ pub enum RecognitionLanguageStatus {
 }
 
 impl RecognitionLanguageStatus {
+    /// Return a ready resolution or an actionable error without relaxing intent.
+    /// Unknown capabilities fail closed, just like an incompatible restriction.
     pub fn into_result(self) -> std::result::Result<RecognitionResolution, String> {
         match self {
             Self::Ready { resolution } => Ok(resolution),
