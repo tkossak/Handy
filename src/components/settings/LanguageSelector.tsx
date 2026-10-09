@@ -392,9 +392,20 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
       setEditingPair(true);
       return;
     }
+    const nextIntent = { ...intent, mode: nextMode };
+    if (
+      nextMode === "single" &&
+      (!nextIntent.single_language || nextIntent.single_language === "auto")
+    ) {
+      const language =
+        availableLanguages.find((option) => option.value === "en")?.value ??
+        availableLanguages[0]?.value;
+      if (!language) return;
+      nextIntent.single_language = language;
+    }
     setEditingPair(false);
     setDraftPair(intent.pair);
-    await updateSetting("recognition_language", { ...intent, mode: nextMode });
+    await updateSetting("recognition_language", nextIntent);
   };
 
   return (
@@ -427,8 +438,10 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
                     !supportsLanguageDetection &&
                     intent.mode !== "auto") ||
                   (option === "single" &&
-                    !supportsLanguageSelection &&
-                    intent.mode !== "single")
+                    ((!supportsLanguageSelection && intent.mode !== "single") ||
+                      (availableLanguages.length === 0 &&
+                        (!intent.single_language ||
+                          intent.single_language === "auto"))))
                 }
                 onChange={() => {
                   void setMode(option);
