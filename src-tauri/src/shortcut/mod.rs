@@ -686,11 +686,17 @@ pub fn change_translate_to_english_setting(app: AppHandle, enabled: bool) -> Res
     Ok(())
 }
 
+/// Atomically save the active mode and retained inactive choices together.
+/// Incompatible intent is preserved; compatibility is resolved when used,
+/// rather than silently replacing the saved restriction with unrestricted mode.
 #[tauri::command]
 #[specta::specta]
-pub fn change_selected_language_setting(app: AppHandle, language: String) -> Result<(), String> {
+pub fn change_recognition_language_setting(
+    app: AppHandle,
+    recognition_language: settings::RecognitionLanguage,
+) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
-    settings.selected_language = language;
+    settings.recognition_language = recognition_language;
     settings::write_settings(&app, settings);
     Ok(())
 }

@@ -2485,6 +2485,7 @@ dependencies = [
  "objc2-foundation",
  "objc2-service-management",
  "once_cell",
+ "parking_lot",
  "rdev",
  "regex",
  "reqwest 0.12.28",
@@ -7254,8 +7255,7 @@ dependencies = [
 [[package]]
 name = "transcribe-cpp"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6cad85eeb846a7064891c8b49b92a57a0f2d4dd089104cb199608b23043555e"
+source = "git+https://github.com/tkossak/transcribe.cpp?rev=90343a4075abe0aa9c83fca50404cd79f1a714d7#90343a4075abe0aa9c83fca50404cd79f1a714d7"
 dependencies = [
  "log",
  "serde",
@@ -7266,8 +7266,7 @@ dependencies = [
 [[package]]
 name = "transcribe-cpp-sys"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f0976932ee2a0d9bcfb7a90947d0a73771cee383b163bd7189a8e0d67da1157"
+source = "git+https://github.com/tkossak/transcribe.cpp?rev=90343a4075abe0aa9c83fca50404cd79f1a714d7#90343a4075abe0aa9c83fca50404cd79f1a714d7"
 dependencies = [
  "cmake",
  "serde_json",

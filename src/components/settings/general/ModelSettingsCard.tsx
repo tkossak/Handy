@@ -6,7 +6,9 @@ import { TranslateToEnglish } from "../TranslateToEnglish";
 import { useModelStore } from "../../../stores/modelStore";
 import type { ModelInfo } from "@/bindings";
 
-export const ModelSettingsCard: React.FC = () => {
+export const ModelSettingsCard: React.FC<{ onChooseModel?: () => void }> = ({
+  onChooseModel,
+}) => {
   const { t } = useTranslation();
   const { currentModel, models } = useModelStore();
 
@@ -15,29 +17,23 @@ export const ModelSettingsCard: React.FC = () => {
   const showLanguageSelector =
     currentModelInfo?.supports_language_selection ?? false;
   const supportsTranslation = currentModelInfo?.supports_translation ?? false;
-  const hasAnySettings = showLanguageSelector || supportsTranslation;
-
-  // Don't render anything if no model is selected or no settings available
-  if (!currentModel || !currentModelInfo || !hasAnySettings) {
-    return null;
-  }
 
   return (
     <SettingsGroup
       title={t("settings.modelSettings.title", {
-        model: currentModelInfo.name,
+        model: currentModelInfo?.name ?? t("settings.general.language.noModel"),
       })}
     >
-      {showLanguageSelector && (
-        <LanguageSelector
-          descriptionMode="tooltip"
-          grouped={true}
-          supportedLanguages={currentModelInfo.supported_languages}
-          supportsLanguageDetection={
-            currentModelInfo.supports_language_detection
-          }
-        />
-      )}
+      <LanguageSelector
+        descriptionMode="tooltip"
+        grouped={true}
+        supportedLanguages={currentModelInfo?.supported_languages}
+        supportsLanguageDetection={
+          currentModelInfo?.supports_language_detection
+        }
+        supportsLanguageSelection={showLanguageSelector}
+        onChooseModel={onChooseModel}
+      />
       {supportsTranslation && (
         <TranslateToEnglish descriptionMode="tooltip" grouped={true} />
       )}

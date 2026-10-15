@@ -93,9 +93,14 @@ async changeTranslateToEnglishSetting(enabled: boolean) : Promise<Result<null, s
     else return { status: "error", error: e  as any };
 }
 },
-async changeSelectedLanguageSetting(language: string) : Promise<Result<null, string>> {
+/**
+ * Atomically save the active mode and retained inactive choices together.
+ * Incompatible intent is preserved; compatibility is resolved when used,
+ * rather than silently replacing the saved restriction with unrestricted mode.
+ */
+async changeRecognitionLanguageSetting(recognitionLanguage: RecognitionLanguage) : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("change_selected_language_setting", { language }) };
+    return { status: "ok", data: await TAURI_INVOKE("change_recognition_language_setting", { recognitionLanguage }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -862,6 +867,14 @@ async getModelLoadStatus() : Promise<Result<ModelLoadStatus, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Validate an optional preview intent, or the saved intent when omitted.
+ * Loading and capability probing run in the background; this does not save
+ * choices, and pending or incompatible status does not permit transcription.
+ */
+async getRecognitionLanguageStatus(recognitionLanguage: RecognitionLanguage | null) : Promise<RecognitionLanguageStatus> {
+    return await TAURI_INVOKE("get_recognition_language_status", { recognitionLanguage });
+},
 async unloadModelManually() : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("unload_model_manually") };
@@ -927,10 +940,8 @@ async updateRecordingRetentionPeriod(period: string) : Promise<Result<null, stri
 }
 },
 /**
- * Checks if the Mac is a laptop by detecting battery presence
- * 
- * This uses pmset to check for battery information.
- * Returns true if a battery is detected (laptop), false otherwise (desktop)
+ * Stub implementation for non-macOS platforms
+ * Always returns false since laptop detection is macOS-specific
  */
 async isLaptop() : Promise<Result<boolean, string>> {
     try {
@@ -1001,7 +1012,7 @@ whats_new_last_seen_version?: string; selected_model?: string; onboarding_comple
  * Which input channel to use on the selected microphone device.
  * None means "average all channels" (original behavior).
  */
-selected_channel?: number | null; clamshell_microphone?: string | null; selected_output_device?: string | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[]; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; paste_method?: PasteMethod; clipboard_handling?: ClipboardHandling; auto_submit?: boolean; auto_submit_key?: AutoSubmitKey; post_process_enabled?: boolean; post_process_provider_id?: string; post_process_providers?: PostProcessProvider[]; post_process_api_keys?: SecretMap; post_process_models?: Partial<{ [key in string]: string }>; post_process_prompts?: LLMPrompt[]; post_process_selected_prompt_id?: string | null; mute_while_recording?: boolean; append_trailing_space?: boolean; app_language?: string; theme?: Theme; experimental_enabled?: boolean; lazy_stream_close?: boolean; keyboard_implementation?: KeyboardImplementation; show_tray_icon?: boolean; paste_delay_ms?: number; paste_delay_after_ms?: number; 
+selected_channel?: number | null; clamshell_microphone?: string | null; selected_output_device?: string | null; translate_to_english?: boolean; recognition_language?: RecognitionLanguage; overlay_position?: OverlayPosition; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[]; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; paste_method?: PasteMethod; clipboard_handling?: ClipboardHandling; auto_submit?: boolean; auto_submit_key?: AutoSubmitKey; post_process_enabled?: boolean; post_process_provider_id?: string; post_process_providers?: PostProcessProvider[]; post_process_api_keys?: SecretMap; post_process_models?: Partial<{ [key in string]: string }>; post_process_prompts?: LLMPrompt[]; post_process_selected_prompt_id?: string | null; mute_while_recording?: boolean; append_trailing_space?: boolean; app_language?: string; theme?: Theme; experimental_enabled?: boolean; lazy_stream_close?: boolean; keyboard_implementation?: KeyboardImplementation; show_tray_icon?: boolean; paste_delay_ms?: number; paste_delay_after_ms?: number; 
 /**
  * Debug-gated ("beta") receipt-sequenced paste: restore the clipboard only
  * after the target app actually reads the transcript, instead of after a
@@ -1115,6 +1126,34 @@ export type PostProcessApiFormat =
  */
 "anthropic"
 export type PostProcessProvider = { id: string; label: string; base_url: string; allow_base_url_edit?: boolean; models_endpoint?: string | null; supports_structured_output?: boolean; api_format?: PostProcessApiFormat }
+/**
+ * Persisted recognition intent, including inactive single-language and pair choices.
+ * Switching modes or models retains those choices; an invalid active pair is
+ * reported by the resolver rather than silently removing its restriction.
+ */
+export type RecognitionLanguage = { mode: RecognitionMode; single_language?: string; 
+/**
+ * Inactive choices are retained; active invalid pairs fail at resolution.
+ */
+pair?: string[] }
+/**
+ * Explicit reasons an active recognition restriction cannot be used, including
+ * model loading or validation failures. Reporting an error does not alter intent.
+ */
+export type RecognitionLanguageError = { code: "invalid_pair" } | { code: "duplicate_candidates" } | { code: "pair_unsupported" } | { code: "detection_unsupported" } | { code: "unsupported_candidate"; language: string } | { code: "model_unavailable"; message: string }
+/**
+ * Shared UI/runtime policy result. Unknown is pending loaded capabilities,
+ * never permission to run unrestricted detection.
+ */
+export type RecognitionLanguageStatus = { status: "ready"; resolution: RecognitionResolution } | { status: "incompatible"; reason: RecognitionLanguageError } | { status: "unknown" }
+/**
+ * Persisted user intent, independent of any model-specific fallback.
+ */
+export type RecognitionMode = "auto" | "single" | "pair"
+/**
+ * Effective recognition request. Pair is detection, never a forced hint.
+ */
+export type RecognitionResolution = { mode: "auto" } | { mode: "single"; language: string } | { mode: "pair"; languages: [string, string] }
 export type RecordingRetentionPeriod = "never" | "preserve_limit" | "days_3" | "weeks_2" | "months_3"
 /**
  * A retired ONNX model found on disk.

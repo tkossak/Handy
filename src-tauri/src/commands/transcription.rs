@@ -1,9 +1,10 @@
+use crate::managers::model::{RecognitionLanguageError, RecognitionLanguageStatus};
 use crate::managers::transcription::TranscriptionManager;
-use crate::settings::{get_settings, write_settings, ModelUnloadTimeout};
+use crate::settings::{get_settings, write_settings, ModelUnloadTimeout, RecognitionLanguage};
 use serde::Serialize;
 use specta::Type;
 use std::sync::Arc;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 #[derive(Serialize, Type)]
 pub struct ModelLoadStatus {
@@ -27,6 +28,27 @@ pub fn get_model_load_status(
     Ok(ModelLoadStatus {
         is_loaded: transcription_manager.is_model_loaded(),
         current_model: transcription_manager.get_current_model(),
+    })
+}
+
+/// Validate an optional preview intent, or the saved intent when omitted.
+/// Loading and capability probing run in the background; this does not save
+/// choices, and pending or incompatible status does not permit transcription.
+#[tauri::command]
+#[specta::specta]
+pub async fn get_recognition_language_status(
+    recognition_language: Option<RecognitionLanguage>,
+    app: AppHandle,
+) -> RecognitionLanguageStatus {
+    let manager = Arc::clone(app.state::<Arc<TranscriptionManager>>().inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        manager.recognition_language_status(recognition_language.as_ref())
+    })
+    .await
+    .unwrap_or_else(|error| RecognitionLanguageStatus::Incompatible {
+        reason: RecognitionLanguageError::ModelUnavailable {
+            message: format!("Recognition language validation task failed: {error}"),
+        },
     })
 }
 

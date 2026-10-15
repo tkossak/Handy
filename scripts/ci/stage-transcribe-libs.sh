@@ -28,7 +28,22 @@ if [ ! -d "$SRC" ]; then
   exit 1
 fi
 
+# Validate the selected source, not old files that may already be in DEST.
+# Runtime and backend modules must come from one installed source build.
+if ! compgen -G "$SRC/libtranscribe.so*" >/dev/null \
+  || ! compgen -G "$SRC/libggml-cpu*.so*" >/dev/null; then
+  echo "ERROR: source runtime or CPU backend modules are missing from $SRC" >&2
+  exit 1
+fi
+
+if [ "$SRC" -ef "$DEST" ]; then
+  echo "ERROR: source and destination must be different directories" >&2
+  exit 1
+fi
+
 mkdir -p "$DEST"
+# Drop only this library family's previous staging; preserve unrelated resources.
+rm -f "$DEST"/libtranscribe.so* "$DEST"/libggml*.so*
 
 # Copy the shared lib + every ggml lib/module. `-L` dereferences any SONAME
 # symlinks so the package gets real files.
