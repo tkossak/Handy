@@ -1079,13 +1079,7 @@ impl TranscriptionManager {
                 "Model failed to load after auto-load attempt. Please check your model settings."
             ));
         };
-        self.transcribe_cpp(
-            mark,
-            info,
-            audio,
-            &settings,
-            &active_model,
-        )
+        self.transcribe_cpp(mark, info, audio, &settings, &active_model)
     }
 
     /// transcribe-cpp: the model runs in the engine's worker process, which
