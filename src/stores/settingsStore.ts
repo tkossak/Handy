@@ -336,8 +336,8 @@ export const useSettingsStore = create<SettingsStore>()(
       setUpdating(updateKey, true);
 
       try {
-        // Recognition intent is atomic and only presented as saved after the
-        // backend accepts it; failed saves must leave the user's draft intact.
+        // Present recognition intent as saved only after the backend accepts
+        // the complete mode and retained language choices.
         if (key !== "recognition_language") {
           set((state) => ({
             settings: state.settings
