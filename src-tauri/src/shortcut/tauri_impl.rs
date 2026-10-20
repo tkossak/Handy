@@ -4,12 +4,33 @@
 //! global-shortcut plugin.
 
 use log::{debug, error, warn};
-use tauri::AppHandle;
+use std::collections::HashMap;
+use std::sync::Mutex;
+use tauri::{AppHandle, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 use crate::settings::{self, ShortcutBinding};
 
 use super::handler::handle_shortcut_event;
+
+#[derive(Default)]
+struct RegisteredShortcuts {
+    bindings: Mutex<HashMap<String, ShortcutBinding>>,
+}
+
+fn registrations(app: &AppHandle) -> tauri::State<'_, RegisteredShortcuts> {
+    if app.try_state::<RegisteredShortcuts>().is_none() {
+        app.manage(RegisteredShortcuts::default());
+    }
+    app.state::<RegisteredShortcuts>()
+}
+
+/// Only registrations owned by this backend, never another application's chord.
+pub fn registered_shortcut(app: &AppHandle, id: &str) -> Result<Option<ShortcutBinding>, String> {
+    let state = registrations(app);
+    let registered = state.bindings.lock().map_err(|_| "Shortcut registrations lock poisoned")?;
+    Ok(registered.get(id).cloned())
+}
 
 /// Initialize shortcuts using Tauri's global-shortcut plugin
 pub fn init_shortcuts(app: &AppHandle) {
@@ -37,68 +58,68 @@ pub fn init_shortcuts(app: &AppHandle) {
     }
 }
 
-/// Validate a shortcut string for the Tauri global-shortcut implementation.
-/// Tauri requires at least one non-modifier key and doesn't support the fn key.
-pub fn validate_shortcut(raw: &str) -> Result<(), String> {
+/// Normalize aliases and chord order using the same parser as OS registration.
+pub fn normalize_shortcut(raw: &str) -> Result<String, String> {
     if raw.trim().is_empty() {
         return Err("Shortcut cannot be empty".into());
     }
-
-    let modifiers = [
-        "ctrl", "control", "shift", "alt", "option", "meta", "command", "cmd", "super", "win",
-        "windows",
-    ];
-
-    // Check for fn key which Tauri doesn't support
-    let parts: Vec<String> = raw.split('+').map(|p| p.trim().to_lowercase()).collect();
-    for part in &parts {
-        if part == "fn" || part == "function" {
-            return Err("The 'fn' key is not supported by Tauri global shortcuts".into());
+    let mut parts: Vec<_> = raw.split('+').map(|part| {
+        let part = part.trim();
+        if ["meta", "win", "windows"].iter().any(|alias| part.eq_ignore_ascii_case(alias)) {
+            "super"
+        } else if part.eq_ignore_ascii_case("opt") {
+            "alt"
+        } else {
+            part
         }
+    }).collect();
+    if parts.iter().any(|part| part.eq_ignore_ascii_case("fn") || part.eq_ignore_ascii_case("function")) {
+        return Err("The 'fn' key is not supported by Tauri global shortcuts".into());
     }
+    parts.sort_by_key(|part| ![
+        "ctrl", "control", "shift", "alt", "option", "command", "cmd", "super",
+        "commandorcontrol", "commandorctrl", "cmdorctrl", "cmdorcontrol",
+    ].iter().any(|modifier| part.eq_ignore_ascii_case(modifier)));
+    let shortcut = parts.join("+").parse::<Shortcut>()
+        .map_err(|error| format!("Failed to parse shortcut '{raw}': {error}"))?;
+    let mut normalized = shortcut.into_string();
+    normalized.make_ascii_lowercase();
+    // Keep common key spellings accepted by both backends; Tauri's Display
+    // uses KeyA/Digit1/ArrowUp, which HandyKeys cannot parse on a later switch.
+    let key_start = normalized.rfind('+').map_or(0, |index| index + 1);
+    let key = &normalized[key_start..];
+    let prefix = if key.starts_with("key") && key.len() == 4 {
+        3
+    } else if (key.starts_with("digit") && key.len() == 6) || key.starts_with("arrow") {
+        5
+    } else {
+        0
+    };
+    normalized.replace_range(key_start..key_start + prefix, "");
+    Ok(normalized)
+}
 
-    // Check for at least one non-modifier key
-    let has_non_modifier = parts.iter().any(|part| !modifiers.contains(&part.as_str()));
-
-    if !has_non_modifier {
-        return Err("Tauri shortcuts must include a main key (letter, number, F-key, etc.) in addition to modifiers".into());
-    }
-
-    // The name check above passes side-specific modifiers such as
-    // `option_left`, which the handy-keys recorder saves but the accelerator
-    // parser rejects. Parse here so a binding carried over from handy-keys is
-    // reset to the default instead of failing to register.
-    raw.parse::<Shortcut>()
-        .map(|_| ())
-        .map_err(|e| format!("Failed to parse shortcut '{}': {}", raw, e))
+/// Validate a shortcut string for the Tauri global-shortcut implementation.
+pub fn validate_shortcut(raw: &str) -> Result<(), String> {
+    normalize_shortcut(raw).map(|_| ())
 }
 
 /// Register a shortcut using Tauri's global-shortcut plugin
-pub fn register_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<(), String> {
+pub fn register_shortcut(app: &AppHandle, mut binding: ShortcutBinding) -> Result<(), String> {
     if !super::binding_is_enabled(&settings::get_settings(app), &binding) {
         return Ok(());
     }
-    // Validate for Tauri requirements
-    if let Err(e) = validate_shortcut(&binding.current_binding) {
-        warn!(
-            "register_tauri_shortcut validation error for binding '{}': {}",
-            binding.current_binding, e
-        );
-        return Err(e);
-    }
-
-    // Parse shortcut and return error if it fails
-    let shortcut = match binding.current_binding.parse::<Shortcut>() {
-        Ok(s) => s,
-        Err(e) => {
-            let error_msg = format!(
-                "Failed to parse shortcut '{}': {}",
-                binding.current_binding, e
-            );
-            error!("register_tauri_shortcut parse error: {}", error_msg);
-            return Err(error_msg);
+    binding.current_binding = normalize_shortcut(&binding.current_binding)?;
+    let state = registrations(app);
+    let mut registered = state.bindings.lock().map_err(|_| "Shortcut registrations lock poisoned")?;
+    if let Some(previous) = registered.get(&binding.id) {
+        if normalize_shortcut(&previous.current_binding)? == binding.current_binding {
+            return Ok(());
         }
-    };
+        return Err(format!("Binding '{}' is already registered", binding.id));
+    }
+    let shortcut = binding.current_binding.parse::<Shortcut>()
+        .map_err(|error| error.to_string())?;
 
     // Prevent duplicate registrations that would silently shadow one another
     if app.global_shortcut().is_registered(shortcut) {
@@ -138,26 +159,23 @@ pub fn register_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<()
             error!("register_tauri_shortcut registration error: {}", error_msg);
             error_msg
         })?;
+    registered.insert(binding.id.clone(), binding);
 
     Ok(())
 }
 
 /// Unregister a shortcut from Tauri's global-shortcut plugin
 pub fn unregister_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<(), String> {
-    if binding.current_binding.trim().is_empty() {
+    let state = registrations(app);
+    let mut registered = state.bindings.lock().map_err(|_| "Shortcut registrations lock poisoned")?;
+    let Some(previous) = registered.get(&binding.id) else {
+        return Ok(());
+    };
+    if normalize_shortcut(&previous.current_binding)? != normalize_shortcut(&binding.current_binding)? {
         return Ok(());
     }
-    let shortcut = match binding.current_binding.parse::<Shortcut>() {
-        Ok(s) => s,
-        Err(e) => {
-            let error_msg = format!(
-                "Failed to parse shortcut '{}' for unregistration: {}",
-                binding.current_binding, e
-            );
-            error!("unregister_tauri_shortcut parse error: {}", error_msg);
-            return Err(error_msg);
-        }
-    };
+    let shortcut = normalize_shortcut(&previous.current_binding)?.parse::<Shortcut>()
+        .map_err(|error| error.to_string())?;
 
     app.global_shortcut().unregister(shortcut).map_err(|e| {
         let error_msg = format!(
@@ -167,6 +185,7 @@ pub fn unregister_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<
         error!("unregister_tauri_shortcut error: {}", error_msg);
         error_msg
     })?;
+    registered.remove(&binding.id);
 
     Ok(())
 }
