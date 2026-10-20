@@ -415,8 +415,9 @@ impl ShortcutAction for TranscribeAction {
     fn start(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
         let start_time = Instant::now();
         debug!("TranscribeAction::start called for binding: {}", binding_id);
+        let settings = get_settings(app);
         let language_override = match dictation_language_override(
-            &get_settings(app).recognition_language,
+            &settings.recognition_language,
             binding_id,
         ) {
             Ok(language) => language,
@@ -426,9 +427,26 @@ impl ShortcutAction for TranscribeAction {
             }
         };
 
-        // Load model in the background
+        // Consult only already-known facts here: the UI status query can load
+        // a cold model synchronously and must not delay microphone capture.
         let tm = app.state::<Arc<TranscriptionManager>>();
         let rm = app.state::<Arc<AudioRecordingManager>>();
+        if let Some(language) = language_override.as_deref() {
+            if let crate::managers::model::RecognitionLanguageStatus::Incompatible { reason } =
+                tm.forced_language_status(&settings.selected_model, language)
+            {
+                let model_name = app
+                    .state::<Arc<ModelManager>>()
+                    .get_model_info(&settings.selected_model)
+                    .map(|model| model.name)
+                    .unwrap_or_else(|| settings.selected_model.clone());
+                let _ = app.emit(
+                    "transcription-error",
+                    format!("Cannot dictate in '{language}' with model '{model_name}': {reason}"),
+                );
+                return;
+            }
+        }
 
         // Load ASR model and VAD model in parallel
         let kickoff_started = Instant::now();
@@ -674,6 +692,12 @@ impl ShortcutAction for TranscribeAction {
 
                 if samples.is_empty() {
                     debug!("Recording produced no audio samples; skipping persistence");
+                    if let Some(language) = language_override.as_deref() {
+                        let _ = ah.emit(
+                            "transcription-error",
+                            format!("No audio was captured for recognition language '{language}'."),
+                        );
+                    }
                     // Tear down any streaming worker so its channel doesn't leak
                     // and block the next start_stream.
                     tm.cancel_stream();
@@ -989,6 +1013,40 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn selected_slot_must_be_explicit_but_the_other_slot_is_not_a_gate() {
+        use crate::settings::{RecognitionLanguage, RecognitionMode};
+        for (pair, binding) in [
+            (vec!["en"], "transcribe_language_1"),
+            (vec!["en", ""], "transcribe_language_1"),
+            (vec!["en", "en"], "transcribe_language_1"),
+            (vec!["en", "unsupported"], "transcribe_language_1"),
+            (vec!["", "en"], "transcribe_language_2"),
+            (vec!["unsupported", "en"], "transcribe_language_2"),
+        ] {
+            let intent = RecognitionLanguage {
+                mode: RecognitionMode::Pair,
+                pair: pair.into_iter().map(String::from).collect(),
+                ..Default::default()
+            };
+            assert_eq!(
+                super::dictation_language_override(&intent, binding)
+                    .unwrap()
+                    .as_deref(),
+                Some("en"),
+            );
+        }
+        for pair in [vec![], vec![""], vec!["   "], vec!["auto"]] {
+            let intent = RecognitionLanguage {
+                mode: RecognitionMode::Pair,
+                pair: pair.into_iter().map(String::from).collect(),
+                ..Default::default()
+            };
+            assert!(super::dictation_language_override(&intent, "transcribe_language_1").is_err());
+            assert!(super::dictation_language_override(&intent, "transcribe_language_2").is_err());
+        }
+    }
+
     #[test]
     fn blank_transcription_is_detected() {
         assert!(is_blank_transcription(""));
