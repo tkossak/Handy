@@ -132,7 +132,16 @@
         "none": "Geen sneltoetsen geconfigureerd",
         "notFound": "Sneltoets niet gevonden",
         "pressKeys": "Druk op toetsen...",
+        "unassigned": "Niet toegewezen",
         "bindings": {
+          "transcribe_language_1": {
+            "name": "Sneltoets voor taal 1",
+            "description": "Dicteer in de bij Taal 1 gekozen taal zonder de opgeslagen herkenningsmodus te wijzigen."
+          },
+          "transcribe_language_2": {
+            "name": "Sneltoets voor taal 2",
+            "description": "Dicteer in de bij Taal 2 gekozen taal zonder de opgeslagen herkenningsmodus te wijzigen."
+          },
           "transcribe": {
             "name": "Sneltoets voor dicteren",
             "description": "De sneltoets om je stem op te nemen en te transcriberen."

@@ -159,7 +159,16 @@
         "none": "Kısayol yapılandırılmadı",
         "notFound": "Kısayol bulunamadı",
         "pressKeys": "Tuşlara basın...",
+        "unassigned": "Atanmamış",
         "bindings": {
+          "transcribe_language_1": {
+            "name": "Dil 1 kısayolu",
+            "description": "Kayıtlı tanıma modunu değiştirmeden Dil 1 alanında seçilen dilde dikte edin."
+          },
+          "transcribe_language_2": {
+            "name": "Dil 2 kısayolu",
+            "description": "Kayıtlı tanıma modunu değiştirmeden Dil 2 alanında seçilen dilde dikte edin."
+          },
           "transcribe": {
             "name": "Transkripsiyon Kısayolu",
             "description": "Sesinizi kaydetmek ve metne dönüştürmek için klavye kısayolu."

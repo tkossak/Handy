@@ -159,7 +159,16 @@
         "none": "Keine Tastenkürzel konfiguriert",
         "notFound": "Tastenkürzel nicht gefunden",
         "pressKeys": "Tasten drücken...",
+        "unassigned": "Nicht zugewiesen",
         "bindings": {
+          "transcribe_language_1": {
+            "name": "Tastenkürzel für Sprache 1",
+            "description": "In der unter Sprache 1 gewählten Sprache diktieren, ohne den gespeicherten Erkennungsmodus zu ändern."
+          },
+          "transcribe_language_2": {
+            "name": "Tastenkürzel für Sprache 2",
+            "description": "In der unter Sprache 2 gewählten Sprache diktieren, ohne den gespeicherten Erkennungsmodus zu ändern."
+          },
           "transcribe": {
             "name": "Transkriptions-Tastenkürzel",
             "description": "Das Tastenkürzel zum Aufnehmen und Transkribieren deiner Stimme."

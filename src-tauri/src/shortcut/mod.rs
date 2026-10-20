@@ -134,8 +134,10 @@ fn reconcile_cancel_shortcut(app: &AppHandle) {
 pub fn binding_is_enabled(settings: &settings::AppSettings, binding: &ShortcutBinding) -> bool {
     !binding.current_binding.trim().is_empty()
         && (binding.id != "transcribe_with_post_process" || settings.post_process_enabled)
-        && (!matches!(binding.id.as_str(), "transcribe_language_1" | "transcribe_language_2")
-            || settings.recognition_language.mode == settings::RecognitionMode::Pair)
+        && (!matches!(
+            binding.id.as_str(),
+            "transcribe_language_1" | "transcribe_language_2"
+        ) || settings.recognition_language.mode == settings::RecognitionMode::Pair)
 }
 
 /// Register a shortcut using the appropriate implementation
@@ -1538,22 +1540,57 @@ mod tests {
     #[test]
     fn language_binding_activation_tracks_pair_mode_without_losing_assignments() {
         let mut settings = crate::settings::get_default_settings();
-        for (id, chord) in [("transcribe_language_1", "ctrl+1"), ("transcribe_language_2", "ctrl+2")] {
+        for (id, chord) in [
+            ("transcribe_language_1", "ctrl+1"),
+            ("transcribe_language_2", "ctrl+2"),
+        ] {
             settings.bindings.get_mut(id).unwrap().current_binding = chord.into();
         }
-        for mode in [crate::settings::RecognitionMode::Auto, crate::settings::RecognitionMode::Single, crate::settings::RecognitionMode::Pair] {
+        for mode in [
+            crate::settings::RecognitionMode::Auto,
+            crate::settings::RecognitionMode::Single,
+            crate::settings::RecognitionMode::Pair,
+        ] {
             settings.recognition_language.mode = mode;
             for id in ["transcribe_language_1", "transcribe_language_2"] {
-                assert_eq!(super::binding_is_enabled(&settings, &settings.bindings[id]), mode == crate::settings::RecognitionMode::Pair);
+                assert_eq!(
+                    super::binding_is_enabled(&settings, &settings.bindings[id]),
+                    mode == crate::settings::RecognitionMode::Pair
+                );
             }
-            assert!(super::binding_is_enabled(&settings, &settings.bindings["transcribe"]));
+            assert!(super::binding_is_enabled(
+                &settings,
+                &settings.bindings["transcribe"]
+            ));
         }
-        settings.bindings.get_mut("transcribe_language_1").unwrap().current_binding.clear();
-        assert!(!super::binding_is_enabled(&settings, &settings.bindings["transcribe_language_1"]));
-        assert!(super::binding_is_enabled(&settings, &settings.bindings["transcribe_language_2"]));
-        assert_eq!(settings.bindings["transcribe_language_2"].current_binding, "ctrl+2");
-        settings.bindings.get_mut("transcribe").unwrap().current_binding.clear();
-        assert!(!super::binding_is_enabled(&settings, &settings.bindings["transcribe"]));
+        settings
+            .bindings
+            .get_mut("transcribe_language_1")
+            .unwrap()
+            .current_binding
+            .clear();
+        assert!(!super::binding_is_enabled(
+            &settings,
+            &settings.bindings["transcribe_language_1"]
+        ));
+        assert!(super::binding_is_enabled(
+            &settings,
+            &settings.bindings["transcribe_language_2"]
+        ));
+        assert_eq!(
+            settings.bindings["transcribe_language_2"].current_binding,
+            "ctrl+2"
+        );
+        settings
+            .bindings
+            .get_mut("transcribe")
+            .unwrap()
+            .current_binding
+            .clear();
+        assert!(!super::binding_is_enabled(
+            &settings,
+            &settings.bindings["transcribe"]
+        ));
     }
 
     #[test]

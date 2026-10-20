@@ -1161,7 +1161,6 @@ pub fn get_settings(app: &AppHandle) -> AppSettings {
             updated = true;
         }
 
-
         if updated {
             store.set("settings", serde_json::to_value(&settings).unwrap());
         }
@@ -1411,31 +1410,83 @@ mod tests {
     #[test]
     fn language_shortcuts_migrate_unassigned_and_keep_independent_assignments_on_reload() {
         let mut raw = serde_json::to_value(get_default_settings()).unwrap();
-        raw["bindings"].as_object_mut().unwrap().remove("transcribe_language_1");
-        raw["bindings"].as_object_mut().unwrap().remove("transcribe_language_2");
+        raw["bindings"]
+            .as_object_mut()
+            .unwrap()
+            .remove("transcribe_language_1");
+        raw["bindings"]
+            .as_object_mut()
+            .unwrap()
+            .remove("transcribe_language_2");
         raw["bindings"]["transcribe"]["current_binding"] = serde_json::json!("");
         let mut settings: AppSettings = serde_json::from_value(raw.clone()).unwrap();
         apply_settings_migrations(&mut settings, &raw);
-        assert_eq!(get_stored_binding(&settings, "transcribe").unwrap().current_binding, "");
+        assert_eq!(
+            get_stored_binding(&settings, "transcribe")
+                .unwrap()
+                .current_binding,
+            ""
+        );
         for id in ["transcribe_language_1", "transcribe_language_2"] {
-            assert_eq!(get_stored_binding(&settings, id).unwrap().current_binding, "");
+            assert_eq!(
+                get_stored_binding(&settings, id).unwrap().current_binding,
+                ""
+            );
         }
 
-        settings.bindings.get_mut("transcribe_language_1").unwrap().current_binding = "ctrl+1".into();
-        settings.bindings.get_mut("transcribe_language_2").unwrap().current_binding = "ctrl+2".into();
+        settings
+            .bindings
+            .get_mut("transcribe_language_1")
+            .unwrap()
+            .current_binding = "ctrl+1".into();
+        settings
+            .bindings
+            .get_mut("transcribe_language_2")
+            .unwrap()
+            .current_binding = "ctrl+2".into();
         let saved = serde_json::to_value(&settings).unwrap();
         let mut reloaded: AppSettings = serde_json::from_value(saved.clone()).unwrap();
         apply_settings_migrations(&mut reloaded, &saved);
-        assert_eq!(get_stored_binding(&reloaded, "transcribe_language_1").unwrap().current_binding, "ctrl+1");
-        assert_eq!(get_stored_binding(&reloaded, "transcribe_language_2").unwrap().current_binding, "ctrl+2");
+        assert_eq!(
+            get_stored_binding(&reloaded, "transcribe_language_1")
+                .unwrap()
+                .current_binding,
+            "ctrl+1"
+        );
+        assert_eq!(
+            get_stored_binding(&reloaded, "transcribe_language_2")
+                .unwrap()
+                .current_binding,
+            "ctrl+2"
+        );
 
-        reloaded.bindings.get_mut("transcribe_language_1").unwrap().current_binding.clear();
+        reloaded
+            .bindings
+            .get_mut("transcribe_language_1")
+            .unwrap()
+            .current_binding
+            .clear();
         let saved = serde_json::to_value(&reloaded).unwrap();
         let mut reloaded: AppSettings = serde_json::from_value(saved.clone()).unwrap();
         apply_settings_migrations(&mut reloaded, &saved);
-        assert_eq!(get_stored_binding(&reloaded, "transcribe_language_1").unwrap().current_binding, "");
-        assert_eq!(get_stored_binding(&reloaded, "transcribe_language_2").unwrap().current_binding, "ctrl+2");
-        assert_eq!(get_stored_binding(&reloaded, "transcribe").unwrap().current_binding, "");
+        assert_eq!(
+            get_stored_binding(&reloaded, "transcribe_language_1")
+                .unwrap()
+                .current_binding,
+            ""
+        );
+        assert_eq!(
+            get_stored_binding(&reloaded, "transcribe_language_2")
+                .unwrap()
+                .current_binding,
+            "ctrl+2"
+        );
+        assert_eq!(
+            get_stored_binding(&reloaded, "transcribe")
+                .unwrap()
+                .current_binding,
+            ""
+        );
     }
 
     #[test]

@@ -132,7 +132,16 @@
         "none": "Nenhum atalho configurado",
         "notFound": "Atalho não encontrado",
         "pressKeys": "Pressione as teclas...",
+        "unassigned": "Não atribuído",
         "bindings": {
+          "transcribe_language_1": {
+            "name": "Atalho do idioma 1",
+            "description": "Dite no idioma selecionado em Idioma 1 sem alterar o modo de reconhecimento salvo."
+          },
+          "transcribe_language_2": {
+            "name": "Atalho do idioma 2",
+            "description": "Dite no idioma selecionado em Idioma 2 sem alterar o modo de reconhecimento salvo."
+          },
           "transcribe": {
             "name": "Atalho de Transcrição",
             "description": "O atalho de teclado para gravar e transcrever sua voz."

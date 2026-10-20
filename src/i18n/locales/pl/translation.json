@@ -159,7 +159,16 @@
         "none": "Brak skonfigurowanych skrótów",
         "notFound": "Nie znaleziono skrótu",
         "pressKeys": "Naciśnij klawisze...",
+        "unassigned": "Nieprzypisany",
         "bindings": {
+          "transcribe_language_1": {
+            "name": "Skrót języka 1",
+            "description": "Dyktowanie w języku wybranym w polu Język 1 bez zmiany zapisanego trybu rozpoznawania."
+          },
+          "transcribe_language_2": {
+            "name": "Skrót języka 2",
+            "description": "Dyktowanie w języku wybranym w polu Język 2 bez zmiany zapisanego trybu rozpoznawania."
+          },
           "transcribe": {
             "name": "Skrót transkrypcji",
             "description": "Skrót klawiaturowy do nagrywania i transkrypcji głosu."

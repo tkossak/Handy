@@ -159,7 +159,16 @@
         "none": "Chưa cấu hình phím tắt",
         "notFound": "Không tìm thấy phím tắt",
         "pressKeys": "Nhấn phím...",
+        "unassigned": "Chưa gán",
         "bindings": {
+          "transcribe_language_1": {
+            "name": "Phím tắt Ngôn ngữ 1",
+            "description": "Đọc chính tả bằng ngôn ngữ được chọn ở Ngôn ngữ 1 mà không thay đổi chế độ nhận dạng đã lưu."
+          },
+          "transcribe_language_2": {
+            "name": "Phím tắt Ngôn ngữ 2",
+            "description": "Đọc chính tả bằng ngôn ngữ được chọn ở Ngôn ngữ 2 mà không thay đổi chế độ nhận dạng đã lưu."
+          },
           "transcribe": {
             "name": "Phím tắt chuyển đổi",
             "description": "Phím tắt để ghi âm và chuyển đổi giọng nói của bạn."

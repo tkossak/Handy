@@ -132,7 +132,16 @@
         "none": "Inga kortkommandon konfigurerade",
         "notFound": "Kortkommando hittades inte",
         "pressKeys": "Tryck på tangenter...",
+        "unassigned": "Inte tilldelat",
         "bindings": {
+          "transcribe_language_1": {
+            "name": "Kortkommando för språk 1",
+            "description": "Diktera på språket valt under Språk 1 utan att ändra det sparade igenkänningsläget."
+          },
+          "transcribe_language_2": {
+            "name": "Kortkommando för språk 2",
+            "description": "Diktera på språket valt under Språk 2 utan att ändra det sparade igenkänningsläget."
+          },
           "transcribe": {
             "name": "Kortkommando för transkribering",
             "description": "Kortkommandot för att spela in och transkribera din röst."

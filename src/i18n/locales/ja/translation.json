@@ -159,7 +159,16 @@
         "none": "ショートカットが設定されていません",
         "notFound": "ショートカットが見つかりません",
         "pressKeys": "キーを押してください…",
+        "unassigned": "未割り当て",
         "bindings": {
+          "transcribe_language_1": {
+            "name": "言語1のショートカット",
+            "description": "保存済みの認識モードを変更せず、言語1で選択した言語で音声入力します。"
+          },
+          "transcribe_language_2": {
+            "name": "言語2のショートカット",
+            "description": "保存済みの認識モードを変更せず、言語2で選択した言語で音声入力します。"
+          },
           "transcribe": {
             "name": "文字起こしのショートカット",
             "description": "音声を録音して文字起こしするためのキーボードショートカット。"

@@ -159,7 +159,16 @@
         "none": "No hay atajos configurados",
         "notFound": "Atajo no encontrado",
         "pressKeys": "Presiona teclas...",
+        "unassigned": "Sin asignar",
         "bindings": {
+          "transcribe_language_1": {
+            "name": "Atajo del idioma 1",
+            "description": "Dictar en el idioma seleccionado en Idioma 1 sin cambiar el modo de reconocimiento guardado."
+          },
+          "transcribe_language_2": {
+            "name": "Atajo del idioma 2",
+            "description": "Dictar en el idioma seleccionado en Idioma 2 sin cambiar el modo de reconocimiento guardado."
+          },
           "transcribe": {
             "name": "Atajo de transcripción",
             "description": "El atajo de teclado para grabar y transcribir tu voz."

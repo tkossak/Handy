@@ -132,7 +132,16 @@
         "none": "Belum ada pintasan yang diatur",
         "notFound": "Pintasan tidak ditemukan",
         "pressKeys": "Tekan tombol...",
+        "unassigned": "Belum ditetapkan",
         "bindings": {
+          "transcribe_language_1": {
+            "name": "Pintasan Bahasa 1",
+            "description": "Dikte menggunakan bahasa yang dipilih pada Bahasa 1 tanpa mengubah mode pengenalan tersimpan."
+          },
+          "transcribe_language_2": {
+            "name": "Pintasan Bahasa 2",
+            "description": "Dikte menggunakan bahasa yang dipilih pada Bahasa 2 tanpa mengubah mode pengenalan tersimpan."
+          },
           "transcribe": {
             "name": "Pintasan Transkripsi",
             "description": "Pintasan keyboard untuk merekam dan mentranskripsikan suara Anda."

@@ -159,7 +159,16 @@
         "none": "Žádné zkratky nejsou nastavené",
         "notFound": "Zkratka nenalezena",
         "pressKeys": "Stiskněte klávesy...",
+        "unassigned": "Nepřiřazeno",
         "bindings": {
+          "transcribe_language_1": {
+            "name": "Zkratka jazyka 1",
+            "description": "Diktování v jazyce vybraném jako Jazyk 1 bez změny uloženého režimu rozpoznávání."
+          },
+          "transcribe_language_2": {
+            "name": "Zkratka jazyka 2",
+            "description": "Diktování v jazyce vybraném jako Jazyk 2 bez změny uloženého režimu rozpoznávání."
+          },
           "transcribe": {
             "name": "Zkratka přepisu",
             "description": "Klávesová zkratka pro nahrávání a přepis vašeho hlasu."

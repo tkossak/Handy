@@ -132,7 +132,16 @@
         "none": "Ingen genveje konfigureret",
         "notFound": "Genvej ikke fundet",
         "pressKeys": "Tryk på ønskede taster...",
+        "unassigned": "Ikke tildelt",
         "bindings": {
+          "transcribe_language_1": {
+            "name": "Genvej til sprog 1",
+            "description": "Diktér på det valgte sprog 1 uden at ændre den gemte genkendelsestilstand."
+          },
+          "transcribe_language_2": {
+            "name": "Genvej til sprog 2",
+            "description": "Diktér på det valgte sprog 2 uden at ændre den gemte genkendelsestilstand."
+          },
           "transcribe": {
             "name": "Transskriptionsgenvej",
             "description": "Tastaturgenvejen til at optage og transskribere din stemme."

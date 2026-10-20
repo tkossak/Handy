@@ -76,7 +76,9 @@ pub fn dictation_language_override(
     if intent.mode != crate::settings::RecognitionMode::Pair {
         return Err("Language-specific shortcuts require Language pair mode.".into());
     }
-    intent.pair.get(index)
+    intent
+        .pair
+        .get(index)
         .filter(|language| !language.trim().is_empty() && language.as_str() != "auto")
         .cloned()
         .map(Some)
@@ -516,7 +518,10 @@ impl ShortcutAction for TranscribeAction {
         let recording_start_time = Instant::now();
         match rm.try_start_recording(&binding_id, vad_policy) {
             Ok(readiness) => {
-                *self.language_override.lock().unwrap_or_else(|e| e.into_inner()) = language_override;
+                *self
+                    .language_override
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner()) = language_override;
                 debug!(
                     "Recording request accepted in {:?}; waiting for first microphone samples",
                     recording_start_time.elapsed()
@@ -637,7 +642,11 @@ impl ShortcutAction for TranscribeAction {
 
         let binding_id = binding_id.to_string(); // Clone binding_id for the async task
         let post_process = self.post_process;
-        let language_override = self.language_override.lock().unwrap_or_else(|e| e.into_inner()).take();
+        let language_override = self
+            .language_override
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
         let cancel_generation = rm.cancel_generation();
 
         tauri::async_runtime::spawn(async move {
@@ -686,7 +695,8 @@ impl ShortcutAction for TranscribeAction {
                     // otherwise a batch run of the samples. A cancel is surfaced
                     // as an error, so it never starts a batch run.
                     let transcription_time = Instant::now();
-                    let transcription_result = tm.transcribe_recording(samples, language_override.as_deref());
+                    let transcription_result =
+                        tm.transcribe_recording(samples, language_override.as_deref());
 
                     // Await WAV save and verify
                     let wav_saved = match wav_handle.await {
@@ -935,7 +945,6 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-
     #[test]
     fn language_shortcuts_follow_picker_positions_and_capture_only_their_own_language() {
         use crate::settings::{RecognitionLanguage, RecognitionMode};
@@ -944,20 +953,40 @@ mod tests {
             single_language: "ja".into(),
             pair: vec!["pl".into(), "en".into()],
         };
-        let captured = super::dictation_language_override(&intent, "transcribe_language_1").unwrap();
+        let captured =
+            super::dictation_language_override(&intent, "transcribe_language_1").unwrap();
         assert_eq!(captured.as_deref(), Some("pl"));
-        assert_eq!(super::dictation_language_override(&intent, "transcribe_language_2").unwrap().as_deref(), Some("en"));
-        assert_eq!(super::dictation_language_override(&intent, "transcribe").unwrap(), None);
-        assert_eq!(super::dictation_language_override(&intent, "transcribe_with_post_process").unwrap(), None);
+        assert_eq!(
+            super::dictation_language_override(&intent, "transcribe_language_2")
+                .unwrap()
+                .as_deref(),
+            Some("en")
+        );
+        assert_eq!(
+            super::dictation_language_override(&intent, "transcribe").unwrap(),
+            None
+        );
+        assert_eq!(
+            super::dictation_language_override(&intent, "transcribe_with_post_process").unwrap(),
+            None
+        );
         intent.pair.swap(0, 1);
-        assert_eq!(super::dictation_language_override(&intent, "transcribe_language_1").unwrap().as_deref(), Some("en"));
+        assert_eq!(
+            super::dictation_language_override(&intent, "transcribe_language_1")
+                .unwrap()
+                .as_deref(),
+            Some("en")
+        );
         assert_eq!(captured.as_deref(), Some("pl"));
         assert_eq!(intent.single_language, "ja");
         for mode in [RecognitionMode::Auto, RecognitionMode::Single] {
             intent.mode = mode;
             assert!(super::dictation_language_override(&intent, "transcribe_language_1").is_err());
             assert!(super::dictation_language_override(&intent, "transcribe_language_2").is_err());
-            assert_eq!(super::dictation_language_override(&intent, "transcribe").unwrap(), None);
+            assert_eq!(
+                super::dictation_language_override(&intent, "transcribe").unwrap(),
+                None
+            );
         }
     }
     #[test]

@@ -159,7 +159,16 @@
         "none": "未配置快捷键",
         "notFound": "未找到快捷键",
         "pressKeys": "请按键...",
+        "unassigned": "未分配",
         "bindings": {
+          "transcribe_language_1": {
+            "name": "语言 1 快捷键",
+            "description": "使用语言 1 中选择的语言进行听写，不更改已保存的识别模式。"
+          },
+          "transcribe_language_2": {
+            "name": "语言 2 快捷键",
+            "description": "使用语言 2 中选择的语言进行听写，不更改已保存的识别模式。"
+          },
           "transcribe": {
             "name": "转录快捷键",
             "description": "用于录制和转录语音的键盘快捷键。"

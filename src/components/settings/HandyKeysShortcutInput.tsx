@@ -349,11 +349,20 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
         {allowClear ? (
           <button
             type="button"
-            disabled={disabled || isRecording || !binding.current_binding || isUpdating(`binding_${shortcutId}`)}
+            disabled={
+              disabled ||
+              isRecording ||
+              !binding.current_binding ||
+              isUpdating(`binding_${shortcutId}`)
+            }
             className="px-2 py-1 text-sm rounded hover:bg-mid-gray/10 disabled:opacity-50"
             onClick={() => {
               void updateBinding(shortcutId, "").catch((error) => {
-                toast.error(t("settings.general.shortcut.errors.set", { error: String(error) }));
+                toast.error(
+                  t("settings.general.shortcut.errors.set", {
+                    error: String(error),
+                  }),
+                );
               });
             }}
           >

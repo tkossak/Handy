@@ -159,7 +159,16 @@
         "none": "Aucun raccourci configuré",
         "notFound": "Raccourci non trouvé",
         "pressKeys": "Appuyez sur les touches...",
+        "unassigned": "Non attribué",
         "bindings": {
+          "transcribe_language_1": {
+            "name": "Raccourci de la langue 1",
+            "description": "Dicter dans la langue sélectionnée sous Langue 1 sans modifier le mode de reconnaissance enregistré."
+          },
+          "transcribe_language_2": {
+            "name": "Raccourci de la langue 2",
+            "description": "Dicter dans la langue sélectionnée sous Langue 2 sans modifier le mode de reconnaissance enregistré."
+          },
           "transcribe": {
             "name": "Raccourci de Transcription",
             "description": "Le raccourci clavier pour enregistrer et transcrire votre voix."

@@ -159,7 +159,16 @@
         "none": "Nessuna scorciatoia configurata",
         "notFound": "Scorciatoia non trovata",
         "pressKeys": "Premi i tasti...",
+        "unassigned": "Non assegnato",
         "bindings": {
+          "transcribe_language_1": {
+            "name": "Scorciatoia della lingua 1",
+            "description": "Detta nella lingua selezionata in Lingua 1 senza modificare la modalità di riconoscimento salvata."
+          },
+          "transcribe_language_2": {
+            "name": "Scorciatoia della lingua 2",
+            "description": "Detta nella lingua selezionata in Lingua 2 senza modificare la modalità di riconoscimento salvata."
+          },
           "transcribe": {
             "name": "Scorciatoia Trascrizione",
             "description": "La scorciatoia da tastiera per registrare e trascrivere la tua voce."

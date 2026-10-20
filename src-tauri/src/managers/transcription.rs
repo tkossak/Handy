@@ -829,7 +829,9 @@ impl TranscriptionManager {
         self.stream_active.store(false, Ordering::Release);
 
         let manager = self.clone();
-        thread::spawn(move || manager.run_stream_worker(rx, cancelled, worker_id, language_override));
+        thread::spawn(move || {
+            manager.run_stream_worker(rx, cancelled, worker_id, language_override)
+        });
     }
 
     fn run_stream_worker(
@@ -883,7 +885,9 @@ impl TranscriptionManager {
             ModelTraits::of(&info),
             get_settings(&self.app_handle).long_form_chunking,
         );
-        let Some(mut session) = LiveSession::begin(self, mode, &info, &model_id, language_override.as_deref()) else {
+        let Some(mut session) =
+            LiveSession::begin(self, mode, &info, &model_id, language_override.as_deref())
+        else {
             // Unsupported recognition intent also returns no live decode;
             // the guarded batch path reports its error when recording stops.
             self.router.clear();
@@ -980,7 +984,11 @@ impl TranscriptionManager {
     /// batch run of the whole recording when there is no live result.
     /// The optional language is the initiating action's frozen choice, also
     /// used by batch fallback when live decode cannot run.
-    pub fn transcribe_recording(&self, samples: Vec<f32>, language_override: Option<&str>) -> Result<String> {
+    pub fn transcribe_recording(
+        &self,
+        samples: Vec<f32>,
+        language_override: Option<&str>,
+    ) -> Result<String> {
         let started = Instant::now();
         let live = self.finalize_live(samples.len())?;
         self.complete(started, samples, live, language_override)
@@ -1085,7 +1093,14 @@ impl TranscriptionManager {
                 "Model failed to load after auto-load attempt. Please check your model settings."
             ));
         };
-        self.transcribe_cpp(mark, info, audio, &settings, &active_model, language_override)
+        self.transcribe_cpp(
+            mark,
+            info,
+            audio,
+            &settings,
+            &active_model,
+            language_override,
+        )
     }
 
     /// transcribe-cpp: the model runs in the engine's worker process, which
@@ -1223,7 +1238,11 @@ impl RunSetup {
 /// The loaded model's live capabilities (cheap GGUF-metadata reads) are the
 /// source of truth, not the ModelManager copy; translate is gated on what the
 /// model advertises.
-fn run_setup(info: &LoadedInfo, settings: &AppSettings, language_override: Option<&str>) -> Result<RunSetup> {
+fn run_setup(
+    info: &LoadedInfo,
+    settings: &AppSettings,
+    language_override: Option<&str>,
+) -> Result<RunSetup> {
     let model_supports_translate = info.capabilities.supports_translate;
     let languages = info.capabilities.languages.clone();
     debug!(
@@ -1964,7 +1983,10 @@ mod tests {
             let setup = run_setup(&model, &settings, Some(language)).unwrap();
             assert_eq!(setup.run_options.language.as_deref(), Some(language));
             assert!(setup.run_options.language_candidates.is_empty());
-            assert_eq!(setup.output_language(&settings, None), OutputLanguageEvidence::UserSelected(language.into()));
+            assert_eq!(
+                setup.output_language(&settings, None),
+                OutputLanguageEvidence::UserSelected(language.into())
+            );
             assert_eq!(settings.recognition_language, saved);
         }
         let ordinary = run_setup(&model, &settings, None).unwrap();
@@ -1977,8 +1999,18 @@ mod tests {
         settings.recognition_language.pair = languages(&["zh", "en"]);
         let forced = run_setup(&model, &settings, Some(&captured)).unwrap();
         assert_eq!(forced.run_options.language.as_deref(), Some("pl"));
-        assert_eq!(forced.output_language(&settings, None), OutputLanguageEvidence::UserSelected("pl".into()));
-        assert_eq!(run_setup(&model, &settings, None).unwrap().run_options.language.as_deref(), Some("zh"));
+        assert_eq!(
+            forced.output_language(&settings, None),
+            OutputLanguageEvidence::UserSelected("pl".into())
+        );
+        assert_eq!(
+            run_setup(&model, &settings, None)
+                .unwrap()
+                .run_options
+                .language
+                .as_deref(),
+            Some("zh")
+        );
     }
 
     #[test]
@@ -1996,14 +2028,23 @@ mod tests {
         let polish = run_setup(&model, &settings, Some("pl")).unwrap();
         assert!(matches!(polish.run_options.task, Task::Translate));
         assert_eq!(polish.run_options.target_language.as_deref(), Some("en"));
-        assert_eq!(polish.output_language(&settings, None), OutputLanguageEvidence::TranslatedToEnglish);
+        assert_eq!(
+            polish.output_language(&settings, None),
+            OutputLanguageEvidence::TranslatedToEnglish
+        );
         settings.translate_to_english = false;
         let chinese = run_setup(&model, &settings, Some("zh")).unwrap();
-        assert_eq!(finish_text(RunOutcome {
-            setup: chinese,
-            text: "汉语".into(),
-            model_detected_language: None,
-        }, &settings), "漢語");
+        assert_eq!(
+            finish_text(
+                RunOutcome {
+                    setup: chinese,
+                    text: "汉语".into(),
+                    model_detected_language: None,
+                },
+                &settings
+            ),
+            "漢語"
+        );
         assert_eq!(settings.recognition_language, pair_intent(&["pl", "en"]));
     }
 
@@ -2462,6 +2503,7 @@ mod tests {
             false,
             &settings.recognition_language,
             &loaded_model("whisper", &[]),
+            None,
         )
         .unwrap();
 
@@ -2500,6 +2542,7 @@ mod tests {
             true,
             &single_intent("en"),
             &loaded_model("whisper", &["en", "es"]),
+            None,
         )
         .unwrap();
 
@@ -2514,6 +2557,7 @@ mod tests {
             true,
             &single_intent("es"),
             &loaded_model("whisper", &["en", "es"]),
+            None,
         )
         .unwrap();
 
@@ -2526,7 +2570,7 @@ mod tests {
     fn transcribe_cpp_run_plan_requires_model_translation_support() {
         let mut model = loaded_model("whisper", &["en", "es"]);
         model.capabilities.supports_translate = false;
-        let plan = transcribe_cpp_run_plan(true, &single_intent("es"), &model).unwrap();
+        let plan = transcribe_cpp_run_plan(true, &single_intent("es"), &model, None).unwrap();
 
         assert!(matches!(plan.task, Task::Transcribe));
         assert_eq!(plan.language.as_deref(), Some("es"));

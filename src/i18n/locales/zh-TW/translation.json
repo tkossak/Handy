@@ -132,7 +132,16 @@
         "none": "未設定快捷鍵",
         "notFound": "未找到快捷鍵",
         "pressKeys": "請按鍵...",
+        "unassigned": "未指派",
         "bindings": {
+          "transcribe_language_1": {
+            "name": "語言 1 快捷鍵",
+            "description": "使用語言 1 中選取的語言進行聽寫，不更改已儲存的辨識模式。"
+          },
+          "transcribe_language_2": {
+            "name": "語言 2 快捷鍵",
+            "description": "使用語言 2 中選取的語言進行聽寫，不更改已儲存的辨識模式。"
+          },
           "transcribe": {
             "name": "轉錄快捷鍵",
             "description": "用於錄製和轉錄語音的鍵盤快捷鍵"

@@ -132,7 +132,16 @@
         "none": "No hi ha cap drecera configurada",
         "notFound": "No s'ha trobat la drecera",
         "pressKeys": "Premeu les tecles...",
+        "unassigned": "Sense assignar",
         "bindings": {
+          "transcribe_language_1": {
+            "name": "Drecera de la llengua 1",
+            "description": "Dicta en la llengua seleccionada a Llengua 1, sense canviar el mode de reconeixement desat."
+          },
+          "transcribe_language_2": {
+            "name": "Drecera de la llengua 2",
+            "description": "Dicta en la llengua seleccionada a Llengua 2, sense canviar el mode de reconeixement desat."
+          },
           "transcribe": {
             "name": "Drecera de transcripció",
             "description": "La drecera de teclat per enregistrar i transcriure la vostra veu."
