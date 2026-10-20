@@ -33,6 +33,8 @@ pub fn handle_shortcut_event(
     is_pressed: bool,
 ) {
     let settings = get_settings(app);
+    let routed = super::routed_binding_id(binding_id);
+    let binding_id = routed.as_str();
 
     // Transcribe bindings are handled by the coordinator.
     if is_transcribe_binding(binding_id) {

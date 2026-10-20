@@ -579,7 +579,10 @@ impl TranscriptionCoordinator {
                         }
                         Command::Cancel {
                             recording_was_active,
-                        } => state.on_cancel(recording_was_active),
+                        } => {
+                            state.on_cancel(recording_was_active);
+                            crate::shortcut::release_retained_stop(&app);
+                        }
                         Command::ProcessingFinished => {
                             if let Some(effect) = state.on_processing_finished() {
                                 run_effect(&app, &mut state, effect);
@@ -682,11 +685,17 @@ fn run_effect(app: &AppHandle, state: &mut CoordinatorState, effect: Effect) {
         } => {
             let started = start(app, &binding_id, &hotkey_string);
             state.on_start_result(&binding_id, started);
+            if started {
+                crate::shortcut::remember_retained_stop(app, &binding_id, &hotkey_string);
+            }
         }
         Effect::Stop {
             binding_id,
             hotkey_string,
-        } => stop(app, &binding_id, &hotkey_string),
+        } => {
+            stop(app, &binding_id, &hotkey_string);
+            crate::shortcut::release_retained_stop(app);
+        }
     }
 }
 

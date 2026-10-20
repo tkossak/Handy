@@ -10,6 +10,11 @@ pub(super) trait BindingEnvironment {
     fn register(&mut self, binding: &ShortcutBinding) -> Result<(), String>;
     fn unregister(&mut self, binding: &ShortcutBinding) -> Result<(), String>;
     fn persist(&mut self, bindings: &HashMap<String, ShortcutBinding>) -> Result<(), String>;
+
+    /// Chord that must keep stopping the active language recording, if any.
+    fn retained_stop(&mut self) -> Option<ShortcutBinding> {
+        None
+    }
 }
 
 pub(super) fn normalize_chord(
@@ -92,13 +97,56 @@ pub(super) fn change_binding_transaction(
     } else {
         super::binding_is_enabled(settings, &updated)
     };
-    if activate {
+    let retained = environment.retained_stop();
+    let retained_chord = retained.as_ref().and_then(|stop| {
+        let chord =
+            normalize_chord(&stop.current_binding, settings.keyboard_implementation).ok()?;
+        (!chord.is_empty()).then_some(chord)
+    });
+    // The saved owner updates immediately, but the in-flight recording keeps the
+    // physical chord as a stop-only control until that recording finishes.
+    let suppress_owner = retained_chord
+        .as_ref()
+        .is_some_and(|chord| &updated.current_binding == chord);
+    let install_updated = activate && !suppress_owner;
+    if install_updated {
         if let Err(error) = environment.register(&updated) {
             return Err(restore_registrations(environment, &removed, error));
         }
     }
+    // `suppress_owner` already means this edit did not take the physical chord.
+    // Reinstall it as a stop-only registration only when this edit removed it.
+    let removed_stop = retained_chord.as_ref().is_some_and(|chord| {
+        removed.iter().any(|binding| {
+            normalize_chord(&binding.current_binding, settings.keyboard_implementation)
+                .is_ok_and(|registered| &registered == chord)
+        })
+    });
+    let stop_registration = retained_chord
+        .filter(|_| removed_stop)
+        .map(|chord| super::retained_stop_binding(&chord));
+    if let Some(stop) = &stop_registration {
+        if let Err(error) = environment.register(stop) {
+            let mut error = error;
+            if install_updated {
+                if let Err(rollback) = environment.unregister(&updated) {
+                    error.push_str(&format!(
+                        "; could not remove replacement shortcut: {rollback}"
+                    ));
+                }
+            }
+            return Err(restore_registrations(environment, &removed, error));
+        }
+    }
     if let Err(mut error) = environment.persist(&next) {
-        if activate {
+        if let Some(stop) = &stop_registration {
+            if let Err(rollback) = environment.unregister(stop) {
+                error.push_str(&format!(
+                    "; could not remove retained stop shortcut: {rollback}"
+                ));
+            }
+        }
+        if install_updated {
             if let Err(rollback) = environment.unregister(&updated) {
                 error.push_str(&format!(
                     "; could not remove replacement shortcut: {rollback}"
@@ -144,6 +192,7 @@ mod tests {
         fail_registration: bool,
         fail_persistence: bool,
         fail_unregistration: Option<String>,
+        retained: Option<ShortcutBinding>,
     }
 
     impl SystemBoundary {
@@ -165,6 +214,7 @@ mod tests {
                 fail_registration: false,
                 fail_persistence: false,
                 fail_unregistration: None,
+                retained: None,
             }
         }
 
@@ -210,6 +260,10 @@ mod tests {
             }
             self.registrations.remove(&binding.id);
             Ok(())
+        }
+
+        fn retained_stop(&mut self) -> Option<ShortcutBinding> {
+            self.retained.clone()
         }
 
         fn persist(&mut self, bindings: &HashMap<String, ShortcutBinding>) -> Result<(), String> {
@@ -583,5 +637,55 @@ mod tests {
         let resumed = SystemBoundary::new(&system.saved());
         assert_eq!(resumed.owner("ctrl+space"), Some("transcribe"));
         assert_eq!(resumed.owner("ctrl+1"), Some("transcribe_language_1"));
+    }
+
+    #[test]
+    fn active_language_recording_keeps_its_stop_chord_when_assignments_change() {
+        for implementation in [
+            KeyboardImplementation::Tauri,
+            KeyboardImplementation::HandyKeys,
+        ] {
+            let mut settings = configured(implementation);
+            let mut system = SystemBoundary::new(&settings);
+            let mut retained = super::super::retained_stop_binding("ctrl+1");
+            retained.id = "transcribe_language_1".into();
+            system.retained = Some(retained);
+
+            change_binding_transaction(&mut settings, "transcribe_language_1", "", &mut system)
+                .unwrap();
+
+            assert_eq!(
+                settings.bindings["transcribe_language_1"].current_binding,
+                ""
+            );
+            assert_eq!(system.owner("ctrl+1"), Some(super::super::RETAINED_STOP_ID));
+            assert_eq!(
+                system.saved().bindings["transcribe"].current_binding,
+                "ctrl+space"
+            );
+
+            change_binding_transaction(
+                &mut settings,
+                "transcribe_language_2",
+                "ctrl+1",
+                &mut system,
+            )
+            .unwrap();
+
+            assert_eq!(
+                normalize_chord(
+                    &settings.bindings["transcribe_language_2"].current_binding,
+                    implementation
+                )
+                .unwrap(),
+                normalize_chord("ctrl+1", implementation).unwrap()
+            );
+            assert_eq!(
+                settings.bindings["transcribe_language_1"].current_binding,
+                ""
+            );
+            assert_eq!(system.owner("ctrl+1"), Some(super::super::RETAINED_STOP_ID));
+            assert_eq!(system.owner("ctrl+2"), None);
+        }
     }
 }

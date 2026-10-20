@@ -34,6 +34,123 @@ use crate::tray;
 // Serialize assignment edits against UI capture and activation/backend changes.
 static SHORTCUT_OPERATION: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// Physical registration used only to finish a language recording after its
+/// saved chord has moved or been disabled.
+pub const RETAINED_STOP_ID: &str = "retained_stop";
+
+#[derive(Clone)]
+struct RetainedStop {
+    binding_id: String,
+    chord: String,
+}
+
+static RETAINED_STOP: std::sync::Mutex<Option<RetainedStop>> = std::sync::Mutex::new(None);
+
+pub(crate) fn retained_stop_binding(chord: &str) -> ShortcutBinding {
+    ShortcutBinding {
+        id: RETAINED_STOP_ID.to_string(),
+        name: "Retained stop".to_string(),
+        description: "Stops the language recording already in progress.".to_string(),
+        default_binding: String::new(),
+        current_binding: chord.to_string(),
+    }
+}
+
+fn current_retained_stop() -> Option<RetainedStop> {
+    RETAINED_STOP
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .clone()
+}
+
+pub(crate) fn routed_binding_id(binding_id: &str) -> String {
+    if binding_id == RETAINED_STOP_ID {
+        current_retained_stop()
+            .map(|stop| stop.binding_id)
+            .unwrap_or_else(|| binding_id.to_string())
+    } else {
+        binding_id.to_string()
+    }
+}
+
+pub fn remember_retained_stop(app: &AppHandle, binding_id: &str, chord: &str) {
+    if !matches!(
+        binding_id,
+        "transcribe_language_1" | "transcribe_language_2"
+    ) {
+        return;
+    }
+    let settings = get_settings(app);
+    let Ok(chord) = assignment::normalize_chord(chord, settings.keyboard_implementation) else {
+        return;
+    };
+    if chord.is_empty() {
+        return;
+    }
+    *RETAINED_STOP
+        .lock()
+        .unwrap_or_else(|error| error.into_inner()) = Some(RetainedStop {
+        binding_id: binding_id.to_string(),
+        chord,
+    });
+}
+
+fn ensure_retained_stop_registration(app: &AppHandle) {
+    let Some(stop) = current_retained_stop() else {
+        return;
+    };
+    let settings = get_settings(app);
+    let original_holds = settings
+        .bindings
+        .get(&stop.binding_id)
+        .is_some_and(|binding| {
+            binding_is_enabled(&settings, binding)
+                && assignment::normalize_chord(
+                    &binding.current_binding,
+                    settings.keyboard_implementation,
+                )
+                .is_ok_and(|chord| chord == stop.chord)
+        });
+    if original_holds {
+        return;
+    }
+    if let Err(error) = register_shortcut(app, retained_stop_binding(&stop.chord)) {
+        debug!("Could not retain stop chord '{}': {error}", stop.chord);
+    }
+}
+
+pub fn release_retained_stop(app: &AppHandle) {
+    let _operation = SHORTCUT_OPERATION
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let stop = RETAINED_STOP
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .take();
+    let Some(stop) = stop else {
+        return;
+    };
+    if let Err(error) = unregister_shortcut(app, retained_stop_binding(&stop.chord)) {
+        debug!("Could not release retained stop '{}': {error}", stop.chord);
+    }
+    let settings = get_settings(app);
+    for binding in settings.bindings.values() {
+        let Ok(chord) =
+            assignment::normalize_chord(&binding.current_binding, settings.keyboard_implementation)
+        else {
+            continue;
+        };
+        if chord == stop.chord && binding_is_enabled(&settings, binding) {
+            if let Err(error) = register_shortcut(app, binding.clone()) {
+                debug!(
+                    "Could not restore saved shortcut '{}' after recording: {error}",
+                    binding.id
+                );
+            }
+        }
+    }
+}
+
 struct BindingSystem<'a> {
     app: &'a AppHandle,
     implementation: KeyboardImplementation,
@@ -80,6 +197,14 @@ impl assignment::BindingEnvironment for BindingSystem<'_> {
                 handy_keys::unregister_shortcut(self.app, binding.clone())
             }
         }
+    }
+
+    fn retained_stop(&mut self) -> Option<ShortcutBinding> {
+        current_retained_stop().map(|stop| {
+            let mut binding = retained_stop_binding(&stop.chord);
+            binding.id = stop.binding_id;
+            binding
+        })
     }
 
     fn persist(
@@ -308,6 +433,11 @@ pub fn suspend_all_shortcuts(app: &AppHandle) {
             );
         }
     }
+    if let Some(stop) = current_retained_stop() {
+        if let Err(error) = unregister_shortcut(app, retained_stop_binding(&stop.chord)) {
+            debug!("suspend_all_shortcuts: could not unregister retained stop: {error}");
+        }
+    }
 }
 
 /// Re-register every binding from settings after shortcut recording ends.
@@ -317,6 +447,7 @@ pub fn resume_all_shortcuts(app: &AppHandle) {
         .lock()
         .unwrap_or_else(|error| error.into_inner());
     let settings = get_settings(app);
+    let retained = current_retained_stop();
     for (id, binding) in &settings.bindings {
         if id == "cancel" {
             continue;
@@ -324,10 +455,24 @@ pub fn resume_all_shortcuts(app: &AppHandle) {
         if id == "transcribe_with_post_process" && !settings.post_process_enabled {
             continue;
         }
+        if let Some(stop) = &retained {
+            let chord = assignment::normalize_chord(
+                &binding.current_binding,
+                settings.keyboard_implementation,
+            )
+            .unwrap_or_default();
+            if chord == stop.chord && id != &stop.binding_id {
+                continue;
+            }
+            if id == &stop.binding_id && !binding_is_enabled(&settings, binding) {
+                continue;
+            }
+        }
         if let Err(e) = register_shortcut(app, binding.clone()) {
             debug!("resume_all_shortcuts: could not register '{}': {}", id, e);
         }
     }
+    ensure_retained_stop_registration(app);
 }
 
 /// Temporarily unregister all bindings while the user is recording a
@@ -739,6 +884,7 @@ pub fn change_recognition_language_setting(
                 }
             }
         }
+        ensure_retained_stop_registration(&app);
     }
     Ok(())
 }
