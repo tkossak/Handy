@@ -53,6 +53,10 @@ enum ManagerCommand {
         binding_id: String,
         response: Sender<Result<(), String>>,
     },
+    Registered {
+        binding_id: String,
+        response: Sender<Option<String>>,
+    },
     Shutdown,
 }
 
@@ -165,6 +169,12 @@ impl HandyKeysState {
                         );
                         let _ = response.send(result);
                     }
+                    ManagerCommand::Registered { binding_id, response } => {
+                        let chord = binding_to_hotkey.get(&binding_id)
+                            .and_then(|id| hotkey_to_binding.get(id))
+                            .map(|(_, chord)| chord.clone());
+                        let _ = response.send(chord);
+                    }
                     ManagerCommand::Shutdown => {
                         info!("handy-keys manager thread shutting down");
                         break;
@@ -194,6 +204,18 @@ impl HandyKeysState {
         let hotkey: Hotkey = hotkey_string
             .parse()
             .map_err(|e| format!("Failed to parse hotkey '{}': {}", hotkey_string, e))?;
+        if let Some(id) = binding_to_hotkey.get(binding_id) {
+            let previous = &hotkey_to_binding[id].1;
+            if previous.parse::<Hotkey>().is_ok_and(|previous| previous == hotkey) {
+                return Ok(());
+            }
+            return Err(format!("Binding '{binding_id}' is already registered"));
+        }
+        if hotkey_to_binding.values().any(|(_, chord)| {
+            chord.parse::<Hotkey>().is_ok_and(|registered| registered == hotkey)
+        }) {
+            return Err(format!("Shortcut '{hotkey_string}' is already in use"));
+        }
 
         let id = manager
             .register(hotkey)
@@ -216,10 +238,11 @@ impl HandyKeysState {
         hotkey_to_binding: &mut HashMap<HotkeyId, (String, String)>,
         binding_id: &str,
     ) -> Result<(), String> {
-        if let Some(id) = binding_to_hotkey.remove(binding_id) {
+        if let Some(id) = binding_to_hotkey.get(binding_id).copied() {
             manager
                 .unregister(id)
                 .map_err(|e| format!("Failed to unregister hotkey: {}", e))?;
+            binding_to_hotkey.remove(binding_id);
             hotkey_to_binding.remove(&id);
             debug!("Unregistered handy-keys shortcut: {}", binding_id);
         }
@@ -257,6 +280,14 @@ impl HandyKeysState {
 
         rx.recv()
             .map_err(|_| "Failed to receive unregister response")?
+    }
+
+    pub fn registered(&self, id: &str) -> Result<Option<String>, String> {
+        let (tx, rx) = mpsc::channel();
+        self.command_sender.lock().map_err(|_| "Failed to lock command_sender")?
+            .send(ManagerCommand::Registered { binding_id: id.to_string(), response: tx })
+            .map_err(|_| "Failed to send registration query")?;
+        rx.recv().map_err(|_| "Failed to receive registration query")
     }
 
     /// Start recording mode for a specific binding
@@ -408,17 +439,16 @@ fn modifiers_to_strings(modifiers: handy_keys::Modifiers) -> Vec<String> {
     result
 }
 
-/// Validate a shortcut string for the HandyKeys implementation.
-/// HandyKeys is more permissive: allows modifier-only combos and the fn key.
-pub fn validate_shortcut(raw: &str) -> Result<(), String> {
-    if raw.trim().is_empty() {
-        return Err("Shortcut cannot be empty".into());
-    }
-    // HandyKeys accepts modifier-only, key-only, and modifier+key combos
-    // Just verify the string is parseable
+/// Normalize aliases and chord order using the same parser as OS registration.
+pub fn normalize_shortcut(raw: &str) -> Result<String, String> {
     raw.parse::<Hotkey>()
-        .map(|_| ())
-        .map_err(|e| format!("Invalid shortcut for HandyKeys: {}", e))
+        .map(|hotkey| hotkey.to_handy_string())
+        .map_err(|error| format!("Invalid shortcut for HandyKeys: {error}"))
+}
+
+/// HandyKeys also accepts modifier-only shortcuts and the fn key.
+pub fn validate_shortcut(raw: &str) -> Result<(), String> {
+    normalize_shortcut(raw).map(|_| ())
 }
 
 /// Initialize handy-keys shortcuts
@@ -530,8 +560,7 @@ pub fn stop_handy_keys_recording(app: AppHandle) -> Result<(), String> {
         .ok_or("HandyKeysState not initialized")?;
 
     // Restore shortcuts from settings regardless of how recording ended.
-    // A commit has already registered the new binding via change_binding;
-    // re-registering it here fails cleanly and is ignored.
+    // An unchanged backend-owned registration is an idempotent no-op.
     let result = state.stop_recording();
     super::resume_all_shortcuts(&app);
     result

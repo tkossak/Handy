@@ -387,29 +387,12 @@ export const useSettingsStore = create<SettingsStore>()(
 
     // Update a specific binding
     updateBinding: async (id, binding) => {
-      const { settings, setUpdating } = get();
+      const { setUpdating, refreshSettings } = get();
       const updateKey = `binding_${id}`;
-      const originalBinding = settings?.bindings?.[id]?.current_binding;
 
       setUpdating(updateKey, true);
 
       try {
-        // Optimistic update
-        set((state) => ({
-          settings: state.settings
-            ? {
-                ...state.settings,
-                bindings: {
-                  ...state.settings.bindings,
-                  [id]: {
-                    ...state.settings.bindings?.[id]!,
-                    current_binding: binding,
-                  },
-                },
-              }
-            : null,
-        }));
-
         const result = await commands.changeBinding(id, binding);
 
         // Check if the command executed successfully
@@ -421,26 +404,12 @@ export const useSettingsStore = create<SettingsStore>()(
         if (!result.data.success) {
           throw new Error(result.data.error || "Failed to update binding");
         }
+        // A language-slot takeover can clear any other action, including an
+        // inactive one. Always consume the complete authoritative binding map.
+        await refreshSettings();
       } catch (error) {
         console.error(`Failed to update binding ${id}:`, error);
-
-        // Rollback on error
-        if (originalBinding !== undefined && get().settings) {
-          set((state) => ({
-            settings: state.settings
-              ? {
-                  ...state.settings,
-                  bindings: {
-                    ...state.settings.bindings,
-                    [id]: {
-                      ...state.settings.bindings?.[id]!,
-                      current_binding: originalBinding,
-                    },
-                  },
-                }
-              : null,
-          }));
-        }
+        await refreshSettings();
 
         // Re-throw to let the caller know it failed
         throw error;
@@ -457,10 +426,22 @@ export const useSettingsStore = create<SettingsStore>()(
       setUpdating(updateKey, true);
 
       try {
-        await commands.resetBinding(id);
+        const result = await commands.resetBinding(id);
+        if (result.status === "error") {
+          throw new Error(result.error);
+        }
+        if (!result.data.success) {
+          throw new Error(result.data.error || "Failed to reset binding");
+        }
         await refreshSettings();
       } catch (error) {
         console.error(`Failed to reset binding ${id}:`, error);
+        await refreshSettings();
+        toast.error(
+          i18n.t("settings.general.shortcut.errors.set", {
+            error: String(error),
+          }),
+        );
       } finally {
         setUpdating(updateKey, false);
       }

@@ -1379,6 +1379,60 @@ pub fn write_settings(app: &AppHandle, settings: AppSettings) {
     store.set("settings", serde_json::to_value(&settings).unwrap());
 }
 
+/// The settings store boundary used by the binding transaction. Other settings
+/// retain their existing write path; binding success requires a synchronous save.
+pub(crate) trait BindingSettingsStore {
+    fn settings(&self) -> Option<serde_json::Value>;
+    fn set_settings(&mut self, settings: Option<serde_json::Value>);
+    fn save(&mut self) -> Result<(), String>;
+}
+
+impl BindingSettingsStore for std::sync::Arc<tauri_plugin_store::Store<tauri::Wry>> {
+    fn settings(&self) -> Option<serde_json::Value> {
+        self.get("settings")
+    }
+    fn set_settings(&mut self, settings: Option<serde_json::Value>) {
+        match settings {
+            Some(settings) => self.set("settings", settings),
+            None => { self.delete("settings"); }
+        }
+    }
+    fn save(&mut self) -> Result<(), String> {
+        self.as_ref().save().map_err(|error| error.to_string())
+    }
+}
+
+pub(crate) fn commit_bindings_to_store(
+    store: &mut impl BindingSettingsStore,
+    bindings: &HashMap<String, ShortcutBinding>,
+) -> Result<(), String> {
+    let previous = store.settings();
+    let mut next = previous.clone().unwrap_or_else(|| {
+        serde_json::to_value(get_default_settings()).expect("default settings serialize")
+    });
+    let object = next.as_object_mut().ok_or("Settings store is not an object")?;
+    object.insert("bindings".into(), serde_json::to_value(bindings).map_err(|error| error.to_string())?);
+    store.set_settings(Some(next));
+    if let Err(error) = store.save() {
+        // Reset the cache before any later autosave or unrelated setting write.
+        store.set_settings(previous);
+        return match store.save() {
+            Ok(()) => Err(format!("Could not save shortcut assignments: {error}")),
+            Err(rollback) => Err(format!("Could not save shortcut assignments: {error}; could not restore settings file: {rollback}")),
+        };
+    }
+    Ok(())
+}
+
+pub(crate) fn commit_bindings(
+    app: &AppHandle,
+    bindings: &HashMap<String, ShortcutBinding>,
+) -> Result<(), String> {
+    let mut store = app.store(crate::portable::store_path(SETTINGS_STORE_PATH))
+        .map_err(|error| format!("Could not open settings store: {error}"))?;
+    commit_bindings_to_store(&mut store, bindings)
+}
+
 pub fn get_bindings(app: &AppHandle) -> HashMap<String, ShortcutBinding> {
     let settings = get_settings(app);
 
@@ -1406,6 +1460,80 @@ pub fn get_recording_retention_period(app: &AppHandle) -> RecordingRetentionPeri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Clone)]
+    struct BindingStoreBoundary {
+        memory: Option<serde_json::Value>,
+        disk: Option<serde_json::Value>,
+        fail_next_save: bool,
+    }
+
+    impl BindingSettingsStore for BindingStoreBoundary {
+        fn settings(&self) -> Option<serde_json::Value> {
+            self.memory.clone()
+        }
+        fn set_settings(&mut self, settings: Option<serde_json::Value>) {
+            self.memory = settings;
+        }
+        fn save(&mut self) -> Result<(), String> {
+            if self.fail_next_save {
+                self.fail_next_save = false;
+                // A failed filesystem write may already have changed the file.
+                self.disk = self.memory.clone();
+                return Err("Disk full".into());
+            }
+            self.disk = self.memory.clone();
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn binding_commit_restores_memory_and_disk_when_synchronous_save_fails() {
+        let settings = get_default_settings();
+        let before = serde_json::to_value(&settings).unwrap();
+        let mut store = BindingStoreBoundary {
+            memory: Some(before.clone()),
+            disk: Some(before.clone()),
+            fail_next_save: true,
+        };
+        let mut bindings = settings.bindings.clone();
+        bindings.get_mut("transcribe").unwrap().current_binding.clear();
+
+        assert!(commit_bindings_to_store(&mut store, &bindings).is_err());
+
+        assert_eq!(store.memory, Some(before.clone()));
+        assert_eq!(store.disk, Some(before));
+    }
+
+    #[test]
+    fn committed_unassigned_actions_stay_empty_after_settings_reload() {
+        let mut settings = get_default_settings();
+        settings.recognition_language.pair = vec!["pl".into(), "en".into()];
+        settings.selected_model = "preserved-model".into();
+        let before = serde_json::to_value(&settings).unwrap();
+        let mut store = BindingStoreBoundary {
+            memory: Some(before.clone()),
+            disk: Some(before),
+            fail_next_save: false,
+        };
+        let mut bindings = settings.bindings.clone();
+        for id in ["transcribe", "transcribe_with_post_process", "transcribe_language_1"] {
+            bindings.get_mut(id).unwrap().current_binding.clear();
+        }
+        bindings.get_mut("transcribe_language_2").unwrap().current_binding = "ctrl+space".into();
+
+        commit_bindings_to_store(&mut store, &bindings).unwrap();
+        let saved = store.disk.unwrap();
+        let mut reloaded: AppSettings = serde_json::from_value(saved.clone()).unwrap();
+        apply_settings_migrations(&mut reloaded, &saved);
+
+        for id in ["transcribe", "transcribe_with_post_process", "transcribe_language_1"] {
+            assert_eq!(get_stored_binding(&reloaded, id).unwrap().current_binding, "");
+        }
+        assert_eq!(get_stored_binding(&reloaded, "transcribe_language_2").unwrap().current_binding, "ctrl+space");
+        assert_eq!(reloaded.selected_model, "preserved-model");
+        assert_eq!(reloaded.recognition_language.pair, ["pl", "en"]);
+    }
 
     #[test]
     fn language_shortcuts_migrate_unassigned_and_keep_independent_assignments_on_reload() {
