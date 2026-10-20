@@ -1137,14 +1137,15 @@ impl TranscriptionManager {
         active_model: &str,
         language_override: Option<&str>,
     ) -> Result<RunOutcome> {
-        let setup = run_setup(&info, settings, language_override).map_err(|error| {
-            match language_override {
-                Some(language) => anyhow::anyhow!(
-                    "Cannot dictate in '{language}' with model '{active_model}': {error}"
-                ),
-                None => error,
-            }
-        })?;
+        let setup =
+            run_setup(&info, settings, language_override).map_err(
+                |error| match language_override {
+                    Some(language) => anyhow::anyhow!(
+                        "Cannot dictate in '{language}' with model '{active_model}': {error}"
+                    ),
+                    None => error,
+                },
+            )?;
         let whole = |pcm: Vec<f32>| {
             self.run_batch(mark, pcm, &setup.run_options, active_model)
                 .map_err(engine_error)

@@ -416,16 +416,14 @@ impl ShortcutAction for TranscribeAction {
         let start_time = Instant::now();
         debug!("TranscribeAction::start called for binding: {}", binding_id);
         let settings = get_settings(app);
-        let language_override = match dictation_language_override(
-            &settings.recognition_language,
-            binding_id,
-        ) {
-            Ok(language) => language,
-            Err(error) => {
-                let _ = app.emit("transcription-error", error);
-                return;
-            }
-        };
+        let language_override =
+            match dictation_language_override(&settings.recognition_language, binding_id) {
+                Ok(language) => language,
+                Err(error) => {
+                    let _ = app.emit("transcription-error", error);
+                    return;
+                }
+            };
 
         // Consult only already-known facts here: the UI status query can load
         // a cold model synchronously and must not delay microphone capture.
