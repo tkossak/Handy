@@ -10,8 +10,8 @@ use crate::engine_supervisor::{
 };
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::model::{
-    resolve_recognition_language, ModelManager, RecognitionLanguageError,
-    RecognitionLanguageStatus, RecognitionResolution,
+    resolve_forced_recognition_language, resolve_recognition_language, ModelManager,
+    RecognitionLanguageError, RecognitionLanguageStatus, RecognitionResolution,
 };
 use crate::settings::{
     get_settings, AppSettings, ChineseScript, ModelUnloadTimeout, RecognitionLanguage,
@@ -202,6 +202,13 @@ impl Drop for LoadingGuard {
         let mut is_loading = self.is_loading.lock();
         *is_loading = false;
         self.loading_condvar.notify_all();
+    }
+}
+
+fn wait_for_model_load(is_loading: &LoadMutex<bool>, loading_condvar: &Condvar) {
+    let mut is_loading = is_loading.lock();
+    while *is_loading {
+        loading_condvar.wait(&mut is_loading);
     }
 }
 
@@ -679,8 +686,13 @@ impl TranscriptionManager {
         }
 
         *is_loading = true;
+        let loading_guard = LoadingGuard {
+            is_loading: Arc::clone(&self.is_loading),
+            loading_condvar: Arc::clone(&self.loading_condvar),
+        };
         let self_clone = self.clone();
         thread::spawn(move || {
+            let _loading_guard = loading_guard;
             if reload_pending {
                 self_clone
                     .reload_model_on_next_use
@@ -690,9 +702,6 @@ impl TranscriptionManager {
             if let Err(e) = self_clone.load_model(&settings.selected_model) {
                 error!("Failed to load model: {}", e);
             }
-            let mut is_loading = self_clone.is_loading.lock();
-            *is_loading = false;
-            self_clone.loading_condvar.notify_all();
         });
     }
 
@@ -701,18 +710,39 @@ impl TranscriptionManager {
         current_model.clone()
     }
 
+    /// Non-blocking admission check for a fixed-language shortcut. A cold
+    /// model with no language metadata remains pending, so capture can start
+    /// while it loads. Every decode still validates the loaded capabilities.
+    pub fn forced_language_status(
+        &self,
+        model_id: &str,
+        language: &str,
+    ) -> RecognitionLanguageStatus {
+        if self.get_current_model().as_deref() == Some(model_id) {
+            if let Some(info) = self.engine.loaded() {
+                return resolve_forced_recognition_language(
+                    language,
+                    Some(&info.capabilities.languages),
+                );
+            }
+        }
+        let advertised = self.model_manager.get_model_info(model_id);
+        resolve_forced_recognition_language(
+            language,
+            advertised
+                .as_ref()
+                .map(|model| model.supported_languages.as_slice())
+                .filter(|languages| !languages.is_empty()),
+        )
+    }
+
     /// Use loaded worker facts for both saved and draft intent. Unknown custom
     /// Whisper metadata is resolved by a real load, never catalog permission.
     pub fn recognition_language_status(
         &self,
         recognition_language: Option<&RecognitionLanguage>,
     ) -> RecognitionLanguageStatus {
-        {
-            let mut is_loading = self.is_loading.lock();
-            while *is_loading {
-                self.loading_condvar.wait(&mut is_loading);
-            }
-        }
+        wait_for_model_load(&self.is_loading, &self.loading_condvar);
         let settings = get_settings(&self.app_handle);
         let intent = recognition_language.unwrap_or(&settings.recognition_language);
         let model_id = &settings.selected_model;
@@ -849,12 +879,7 @@ impl TranscriptionManager {
 
         // Wait for any in-progress model load to finish (start_stream races the
         // background load kicked off when recording starts).
-        {
-            let mut is_loading = self.is_loading.lock();
-            while *is_loading {
-                self.loading_condvar.wait(&mut is_loading);
-            }
-        }
+        wait_for_model_load(&self.is_loading, &self.loading_condvar);
 
         let model_id = self.get_current_model().unwrap_or_default();
 
@@ -1068,10 +1093,7 @@ impl TranscriptionManager {
         // Check if model is loaded, if not try to load it
         {
             // If the model is loading, wait for it to complete.
-            let mut is_loading = self.is_loading.lock();
-            while *is_loading {
-                self.loading_condvar.wait(&mut is_loading);
-            }
+            wait_for_model_load(&self.is_loading, &self.loading_condvar);
 
             if !self.is_model_loaded() {
                 return Err(anyhow::anyhow!("Model is not loaded for transcription."));
@@ -1115,7 +1137,15 @@ impl TranscriptionManager {
         active_model: &str,
         language_override: Option<&str>,
     ) -> Result<RunOutcome> {
-        let setup = run_setup(&info, settings, language_override)?;
+        let setup =
+            run_setup(&info, settings, language_override).map_err(
+                |error| match language_override {
+                    Some(language) => anyhow::anyhow!(
+                        "Cannot dictate in '{language}' with model '{active_model}': {error}"
+                    ),
+                    None => error,
+                },
+            )?;
         let whole = |pcm: Vec<f32>| {
             self.run_batch(mark, pcm, &setup.run_options, active_model)
                 .map_err(engine_error)
@@ -1535,20 +1565,13 @@ fn transcribe_cpp_run_plan(
     info: &LoadedInfo,
     language_override: Option<&str>,
 ) -> Result<TranscribeCppRunPlan> {
-    let forced_intent;
-    let intent = if let Some(language) = language_override {
-        forced_intent = RecognitionLanguage {
-            mode: RecognitionMode::Single,
-            single_language: language.to_string(),
-            pair: Vec::new(),
-        };
-        &forced_intent
-    } else {
-        intent
+    let status = match language_override {
+        Some(language) => {
+            resolve_forced_recognition_language(language, Some(&info.capabilities.languages))
+        }
+        None => recognition_status_for_loaded_model(intent, info),
     };
-    let resolution = recognition_status_for_loaded_model(intent, info)
-        .into_result()
-        .map_err(anyhow::Error::msg)?;
+    let resolution = status.into_result().map_err(anyhow::Error::msg)?;
     let (language, language_candidates) = match resolution {
         RecognitionResolution::Auto => (None, Vec::new()),
         RecognitionResolution::Single { language } => {
@@ -2046,6 +2069,133 @@ mod tests {
             "漢語"
         );
         assert_eq!(settings.recognition_language, pair_intent(&["pl", "en"]));
+    }
+
+    #[test]
+    fn forced_language_eligibility_is_independent_of_pair_and_detection_support() {
+        let mut model = loaded_model("parakeet", &["en"]);
+        model.capabilities.supports_language_candidates = false;
+        model.capabilities.supports_language_detect = false;
+        for pair in [
+            vec!["en", "pl"],
+            vec!["en", ""],
+            vec!["en", "en"],
+            vec!["en", "unknown"],
+            vec!["en"],
+        ] {
+            let settings = AppSettings {
+                recognition_language: pair_intent(&pair),
+                ..Default::default()
+            };
+            let saved = settings.recognition_language.clone();
+            let selected = crate::actions::dictation_language_override(
+                &settings.recognition_language,
+                "transcribe_language_1",
+            )
+            .unwrap();
+            let setup = run_setup(&model, &settings, selected.as_deref()).unwrap();
+            assert_eq!(setup.run_options.language.as_deref(), Some("en"));
+            assert!(setup.run_options.language_candidates.is_empty());
+            assert!(run_setup(&model, &settings, None).is_err());
+            assert!(run_setup(&model, &settings, Some("pl")).is_err());
+            assert_eq!(settings.recognition_language, saved);
+        }
+    }
+
+    #[test]
+    fn forced_run_setup_rejects_unknown_or_unsupported_loaded_languages_without_single_fallback() {
+        for supports_detection in [false, true] {
+            for codes in [&["en"][..], &[][..]] {
+                let mut model = loaded_model("whisper", codes);
+                model.capabilities.supports_language_detect = supports_detection;
+                let settings = AppSettings {
+                    recognition_language: single_intent("pl"),
+                    translate_to_english: true,
+                    ..Default::default()
+                };
+                assert!(run_setup(&model, &settings, Some("pl")).is_err());
+                let ordinary = run_setup(&model, &settings, None).unwrap();
+                assert_eq!(
+                    ordinary.run_options.language.as_deref(),
+                    if codes.is_empty() || supports_detection {
+                        None
+                    } else {
+                        Some("en")
+                    },
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn cold_short_stop_retains_language_until_loaded_validation_and_releases_workers() {
+        for supported in [&["pl", "en"][..], &["en"][..]] {
+            let loading = Arc::new(LoadMutex::new(true));
+            let wake = Arc::new(Condvar::new());
+            let loading_guard = LoadingGuard {
+                is_loading: Arc::clone(&loading),
+                loading_condvar: Arc::clone(&wake),
+            };
+            let router = Arc::new(StreamRouter::new());
+            let (rx, _) = router.open();
+            let worker_active = Arc::new(AtomicU64::new(1));
+            let streaming = Arc::new(AtomicBool::new(false));
+            let worker_guard = StreamWorkerGuard {
+                worker_id: 1,
+                active_stream_worker: Arc::clone(&worker_active),
+                stream_active: Arc::clone(&streaming),
+            };
+            let mut settings = AppSettings {
+                recognition_language: pair_intent(&["pl", "en"]),
+                ..Default::default()
+            };
+            let captured = crate::actions::dictation_language_override(
+                &settings.recognition_language,
+                "transcribe_language_1",
+            )
+            .unwrap();
+            // Subsequent settings edits must not retarget the stopped clip.
+            settings.recognition_language = single_intent("en");
+            let model = loaded_model("whisper", supported);
+            let worker_router = Arc::clone(&router);
+            let worker = thread::spawn(move || {
+                let _worker_guard = worker_guard;
+                wait_for_model_load(&loading, &wake);
+                let setup = run_setup(&model, &settings, captured.as_deref());
+                // Whisper takes the batch path, including when a cold stop
+                // already queued finalize before the model became available.
+                worker_router.clear();
+                drain_until_finalize(rx);
+                setup.map(|setup| setup.run_options.language)
+            });
+
+            router.feed(&[0.1, 0.2, 0.3]);
+            let route = router.take().unwrap();
+            let (reply, finalized) = mpsc::channel();
+            route
+                .tx
+                .send(StreamCmd::Finalize { reply, samples: 3 })
+                .unwrap();
+            assert!(matches!(
+                finalized.try_recv(),
+                Err(mpsc::TryRecvError::Empty),
+            ));
+            assert!(!router.is_open());
+            drop(loading_guard);
+            assert!(finalized
+                .recv_timeout(Duration::from_secs(2))
+                .unwrap()
+                .unwrap()
+                .is_none());
+            let result = worker.join().unwrap();
+            if supported.contains(&"pl") {
+                assert_eq!(result.unwrap().as_deref(), Some("pl"));
+            } else {
+                assert!(result.unwrap_err().to_string().contains("'pl'"));
+            }
+            assert_eq!(worker_active.load(Ordering::Acquire), 0);
+            assert!(!streaming.load(Ordering::Acquire));
+        }
     }
 
     #[test]
