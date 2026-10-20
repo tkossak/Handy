@@ -17,6 +17,7 @@ interface GlobalShortcutInputProps {
   grouped?: boolean;
   shortcutId: string;
   disabled?: boolean;
+  allowClear?: boolean;
 }
 
 export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
@@ -24,6 +25,7 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
   grouped = false,
   shortcutId,
   disabled = false,
+  allowClear = false,
 }) => {
   const { t } = useTranslation();
   const { getSetting, updateBinding, resetBinding, isUpdating, isLoading } =
@@ -284,17 +286,37 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
             {formatCurrentKeys()}
           </div>
         ) : (
-          <div
-            className="px-2 py-1 text-sm font-semibold bg-mid-gray/10 border border-mid-gray/80 hover:bg-logo-primary/10 rounded-md cursor-pointer hover:border-logo-primary"
+          <button
+            type="button"
+            aria-label={translatedName}
+            disabled={disabled || isUpdating(`binding_${shortcutId}`)}
+            className="px-2 py-1 text-sm font-semibold bg-mid-gray/10 border border-mid-gray/80 hover:bg-logo-primary/10 rounded-md cursor-pointer hover:border-logo-primary disabled:opacity-50"
             onClick={() => startRecording(shortcutId)}
           >
-            {formatKeyCombination(binding.current_binding, osType)}
-          </div>
+            {binding.current_binding
+              ? formatKeyCombination(binding.current_binding, osType)
+              : t("settings.general.shortcut.unassigned")}
+          </button>
         )}
-        <ResetButton
-          onClick={() => resetBinding(shortcutId)}
-          disabled={isUpdating(`binding_${shortcutId}`)}
-        />
+        {allowClear ? (
+          <button
+            type="button"
+            disabled={disabled || editingShortcutId !== null || !binding.current_binding || isUpdating(`binding_${shortcutId}`)}
+            className="px-2 py-1 text-sm rounded hover:bg-mid-gray/10 disabled:opacity-50"
+            onClick={() => {
+              void updateBinding(shortcutId, "").catch((error) => {
+                toast.error(t("settings.general.shortcut.errors.set", { error: String(error) }));
+              });
+            }}
+          >
+            {t("common.clear")}
+          </button>
+        ) : (
+          <ResetButton
+            onClick={() => resetBinding(shortcutId)}
+            disabled={isUpdating(`binding_${shortcutId}`)}
+          />
+        )}
       </div>
     </SettingContainer>
   );

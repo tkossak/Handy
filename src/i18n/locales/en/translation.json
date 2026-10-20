@@ -132,7 +132,16 @@
         "none": "No shortcuts configured",
         "notFound": "Shortcut not found",
         "pressKeys": "Press keys...",
+        "unassigned": "Unassigned",
         "bindings": {
+          "transcribe_language_1": {
+            "name": "Language 1 Shortcut",
+            "description": "Dictate using the language selected in Language 1, without changing the saved recognition mode."
+          },
+          "transcribe_language_2": {
+            "name": "Language 2 Shortcut",
+            "description": "Dictate using the language selected in Language 2, without changing the saved recognition mode."
+          },
           "transcribe": {
             "name": "Transcribe Shortcut",
             "description": "The keyboard shortcut to record and transcribe your voice."

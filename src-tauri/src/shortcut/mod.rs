@@ -129,9 +129,21 @@ fn reconcile_cancel_shortcut(app: &AppHandle) {
     }
 }
 
+/// Whether a saved assignment may act as an idle/start shortcut.
+/// Cancel still has its separate recording-lifecycle registration.
+pub fn binding_is_enabled(settings: &settings::AppSettings, binding: &ShortcutBinding) -> bool {
+    !binding.current_binding.trim().is_empty()
+        && (binding.id != "transcribe_with_post_process" || settings.post_process_enabled)
+        && (!matches!(binding.id.as_str(), "transcribe_language_1" | "transcribe_language_2")
+            || settings.recognition_language.mode == settings::RecognitionMode::Pair)
+}
+
 /// Register a shortcut using the appropriate implementation
 pub fn register_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<(), String> {
     let settings = get_settings(app);
+    if !binding_is_enabled(&settings, &binding) {
+        return Ok(());
+    }
     match settings.keyboard_implementation {
         KeyboardImplementation::Tauri => tauri_impl::register_shortcut(app, binding),
         KeyboardImplementation::HandyKeys => handy_keys::register_shortcut(app, binding),
@@ -140,6 +152,9 @@ pub fn register_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<()
 
 /// Unregister a shortcut using the appropriate implementation
 pub fn unregister_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<(), String> {
+    if binding.current_binding.trim().is_empty() {
+        return Ok(());
+    }
     let settings = get_settings(app);
     match settings.keyboard_implementation {
         KeyboardImplementation::Tauri => tauri_impl::unregister_shortcut(app, binding),
@@ -165,11 +180,6 @@ pub fn change_binding(
     id: String,
     binding: String,
 ) -> Result<BindingResponse, String> {
-    // Reject empty bindings — every shortcut should have a value
-    if binding.trim().is_empty() {
-        return Err("Binding cannot be empty".to_string());
-    }
-
     let mut settings = settings::get_settings(&app);
 
     // Get the binding to modify, or create it from defaults if it doesn't exist
@@ -436,6 +446,9 @@ fn validate_shortcut_for_implementation(
     raw: &str,
     implementation: KeyboardImplementation,
 ) -> Result<(), String> {
+    if raw.trim().is_empty() {
+        return Ok(());
+    }
     match implementation {
         KeyboardImplementation::Tauri => tauri_impl::validate_shortcut(raw),
         KeyboardImplementation::HandyKeys => handy_keys::validate_shortcut(raw),
@@ -507,6 +520,9 @@ fn register_all_shortcuts_for_implementation(
             .cloned()
             .unwrap_or_else(|| default_binding.clone());
 
+        if binding.current_binding.trim().is_empty() {
+            continue;
+        }
         // Validate the shortcut for the target implementation
         if let Err(e) =
             validate_shortcut_for_implementation(&binding.current_binding, implementation)
@@ -696,8 +712,22 @@ pub fn change_recognition_language_setting(
     recognition_language: settings::RecognitionLanguage,
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
+    let mode_changed = settings.recognition_language.mode != recognition_language.mode;
     settings.recognition_language = recognition_language;
     settings::write_settings(&app, settings);
+    if mode_changed {
+        let settings = settings::get_settings(&app);
+        for id in ["transcribe_language_1", "transcribe_language_2"] {
+            if let Some(binding) = settings.bindings.get(id) {
+                if let Err(error) = unregister_shortcut(&app, binding.clone()) {
+                    debug!("Could not remove language shortcut '{id}': {error}");
+                }
+                if let Err(error) = register_shortcut(&app, binding.clone()) {
+                    error!("Could not activate language shortcut '{id}': {error}");
+                }
+            }
+        }
+    }
     Ok(())
 }
 
@@ -1504,6 +1534,27 @@ pub async fn get_available_accelerators(
 mod tests {
     use handy_keys::Hotkey;
     use tauri_plugin_global_shortcut::Shortcut;
+
+    #[test]
+    fn language_binding_activation_tracks_pair_mode_without_losing_assignments() {
+        let mut settings = crate::settings::get_default_settings();
+        for (id, chord) in [("transcribe_language_1", "ctrl+1"), ("transcribe_language_2", "ctrl+2")] {
+            settings.bindings.get_mut(id).unwrap().current_binding = chord.into();
+        }
+        for mode in [crate::settings::RecognitionMode::Auto, crate::settings::RecognitionMode::Single, crate::settings::RecognitionMode::Pair] {
+            settings.recognition_language.mode = mode;
+            for id in ["transcribe_language_1", "transcribe_language_2"] {
+                assert_eq!(super::binding_is_enabled(&settings, &settings.bindings[id]), mode == crate::settings::RecognitionMode::Pair);
+            }
+            assert!(super::binding_is_enabled(&settings, &settings.bindings["transcribe"]));
+        }
+        settings.bindings.get_mut("transcribe_language_1").unwrap().current_binding.clear();
+        assert!(!super::binding_is_enabled(&settings, &settings.bindings["transcribe_language_1"]));
+        assert!(super::binding_is_enabled(&settings, &settings.bindings["transcribe_language_2"]));
+        assert_eq!(settings.bindings["transcribe_language_2"].current_binding, "ctrl+2");
+        settings.bindings.get_mut("transcribe").unwrap().current_binding.clear();
+        assert!(!super::binding_is_enabled(&settings, &settings.bindings["transcribe"]));
+    }
 
     #[test]
     fn compound_shortcut_keys_parse_on_both_backends() {

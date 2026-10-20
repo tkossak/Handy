@@ -40,12 +40,13 @@ impl<'a> LiveSession<'a> {
         mode: LiveDecode,
         info: &LoadedInfo,
         model_id: &str,
+        language_override: Option<&str>,
     ) -> Option<Self> {
         // Resolve saved intent before either live decoder can begin. Errors
         // leave batch fallback to report the same incompatibility, never run
         // an unrestricted stream or chunk in the meantime.
         let settings = get_settings(&tm.app_handle);
-        let setup = match run_setup(info, &settings) {
+        let setup = match run_setup(info, &settings, language_override) {
             Ok(setup) => setup,
             Err(error) => {
                 warn!("Live preview blocked by recognition intent: {error}");
