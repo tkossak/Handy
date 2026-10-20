@@ -47,30 +47,45 @@ impl assignment::BindingEnvironment for BindingSystem<'_> {
                 let Some(state) = self.app.try_state::<handy_keys::HandyKeysState>() else {
                     return Ok(None);
                 };
-                state.registered(id)?.map(|chord| {
-                    let mut binding = settings::get_stored_binding(&get_settings(self.app), id)?;
-                    binding.current_binding = chord;
-                    Ok(binding)
-                }).transpose()
+                state
+                    .registered(id)?
+                    .map(|chord| {
+                        let mut binding =
+                            settings::get_stored_binding(&get_settings(self.app), id)?;
+                        binding.current_binding = chord;
+                        Ok(binding)
+                    })
+                    .transpose()
             }
         }
     }
 
     fn register(&mut self, binding: &ShortcutBinding) -> Result<(), String> {
         match self.implementation {
-            KeyboardImplementation::Tauri => tauri_impl::register_shortcut(self.app, binding.clone()),
-            KeyboardImplementation::HandyKeys => handy_keys::register_shortcut(self.app, binding.clone()),
+            KeyboardImplementation::Tauri => {
+                tauri_impl::register_shortcut(self.app, binding.clone())
+            }
+            KeyboardImplementation::HandyKeys => {
+                handy_keys::register_shortcut(self.app, binding.clone())
+            }
         }
     }
 
     fn unregister(&mut self, binding: &ShortcutBinding) -> Result<(), String> {
         match self.implementation {
-            KeyboardImplementation::Tauri => tauri_impl::unregister_shortcut(self.app, binding.clone()),
-            KeyboardImplementation::HandyKeys => handy_keys::unregister_shortcut(self.app, binding.clone()),
+            KeyboardImplementation::Tauri => {
+                tauri_impl::unregister_shortcut(self.app, binding.clone())
+            }
+            KeyboardImplementation::HandyKeys => {
+                handy_keys::unregister_shortcut(self.app, binding.clone())
+            }
         }
     }
 
-    fn persist(&mut self, bindings: &std::collections::HashMap<String, ShortcutBinding>) -> Result<(), String> {
+    fn persist(
+        &mut self,
+        bindings: &std::collections::HashMap<String, ShortcutBinding>,
+    ) -> Result<(), String> {
         settings::commit_bindings(self.app, bindings)
     }
 }
@@ -227,21 +242,40 @@ pub fn change_binding(
     id: String,
     binding: String,
 ) -> Result<BindingResponse, String> {
-    let _operation = SHORTCUT_OPERATION.lock().map_err(|_| "Shortcut operation lock poisoned")?;
+    let _operation = SHORTCUT_OPERATION
+        .lock()
+        .map_err(|_| "Shortcut operation lock poisoned")?;
     let mut settings = settings::get_settings(&app);
     let implementation = settings.keyboard_implementation;
     let result = assignment::change_binding_transaction(
-        &mut settings, &id, &binding, &mut BindingSystem { app: &app, implementation },
+        &mut settings,
+        &id,
+        &binding,
+        &mut BindingSystem {
+            app: &app,
+            implementation,
+        },
     );
     match result {
         Ok(binding) => {
             crate::secure_input::reconcile_fallback(&app);
-            let _ = app.emit("settings-changed", serde_json::json!({ "setting": "bindings" }));
-            Ok(BindingResponse { success: true, binding: Some(binding), error: None })
+            let _ = app.emit(
+                "settings-changed",
+                serde_json::json!({ "setting": "bindings" }),
+            );
+            Ok(BindingResponse {
+                success: true,
+                binding: Some(binding),
+                error: None,
+            })
         }
         Err(error) => {
             warn!("Could not change shortcut assignment '{id}': {error}");
-            Ok(BindingResponse { success: false, binding: None, error: Some(error) })
+            Ok(BindingResponse {
+                success: false,
+                binding: None,
+                error: Some(error),
+            })
         }
     }
 }
@@ -258,7 +292,9 @@ pub fn reset_binding(app: AppHandle, id: String) -> Result<BindingResponse, Stri
 /// mid-capture. The "cancel" binding is untouched: it is managed dynamically
 /// by the recording lifecycle.
 pub fn suspend_all_shortcuts(app: &AppHandle) {
-    let _operation = SHORTCUT_OPERATION.lock().unwrap_or_else(|error| error.into_inner());
+    let _operation = SHORTCUT_OPERATION
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     for (id, binding) in settings::get_bindings(app) {
         // Only backend-owned registrations can be removed; inactive assignments
         // must never unregister a different action or another application's grab.
@@ -277,7 +313,9 @@ pub fn suspend_all_shortcuts(app: &AppHandle) {
 /// Re-register every binding from settings after shortcut recording ends.
 /// Backend-owned identical registrations are no-ops, making resume idempotent.
 pub fn resume_all_shortcuts(app: &AppHandle) {
-    let _operation = SHORTCUT_OPERATION.lock().unwrap_or_else(|error| error.into_inner());
+    let _operation = SHORTCUT_OPERATION
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     let settings = get_settings(app);
     for (id, binding) in &settings.bindings {
         if id == "cancel" {
@@ -331,7 +369,9 @@ pub fn change_keyboard_implementation_setting(
     app: AppHandle,
     implementation: String,
 ) -> Result<ImplementationChangeResult, String> {
-    let _operation = SHORTCUT_OPERATION.lock().map_err(|_| "Shortcut operation lock poisoned")?;
+    let _operation = SHORTCUT_OPERATION
+        .lock()
+        .map_err(|_| "Shortcut operation lock poisoned")?;
     let current_settings = settings::get_settings(&app);
     let current_impl = current_settings.keyboard_implementation;
     let new_impl = parse_keyboard_implementation(&implementation);
@@ -680,7 +720,9 @@ pub fn change_recognition_language_setting(
     app: AppHandle,
     recognition_language: settings::RecognitionLanguage,
 ) -> Result<(), String> {
-    let _operation = SHORTCUT_OPERATION.lock().map_err(|_| "Shortcut operation lock poisoned")?;
+    let _operation = SHORTCUT_OPERATION
+        .lock()
+        .map_err(|_| "Shortcut operation lock poisoned")?;
     let mut settings = settings::get_settings(&app);
     let mode_changed = settings.recognition_language.mode != recognition_language.mode;
     settings.recognition_language = recognition_language;
@@ -1057,7 +1099,9 @@ pub fn change_auto_submit_key_setting(app: AppHandle, key: String) -> Result<(),
 #[tauri::command]
 #[specta::specta]
 pub fn change_post_process_enabled_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
-    let _operation = SHORTCUT_OPERATION.lock().map_err(|_| "Shortcut operation lock poisoned")?;
+    let _operation = SHORTCUT_OPERATION
+        .lock()
+        .map_err(|_| "Shortcut operation lock poisoned")?;
     let mut settings = settings::get_settings(&app);
     settings.post_process_enabled = enabled;
     settings::write_settings(&app, settings.clone());

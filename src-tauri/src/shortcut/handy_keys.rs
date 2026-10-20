@@ -169,8 +169,12 @@ impl HandyKeysState {
                         );
                         let _ = response.send(result);
                     }
-                    ManagerCommand::Registered { binding_id, response } => {
-                        let chord = binding_to_hotkey.get(&binding_id)
+                    ManagerCommand::Registered {
+                        binding_id,
+                        response,
+                    } => {
+                        let chord = binding_to_hotkey
+                            .get(&binding_id)
                             .and_then(|id| hotkey_to_binding.get(id))
                             .map(|(_, chord)| chord.clone());
                         let _ = response.send(chord);
@@ -206,13 +210,18 @@ impl HandyKeysState {
             .map_err(|e| format!("Failed to parse hotkey '{}': {}", hotkey_string, e))?;
         if let Some(id) = binding_to_hotkey.get(binding_id) {
             let previous = &hotkey_to_binding[id].1;
-            if previous.parse::<Hotkey>().is_ok_and(|previous| previous == hotkey) {
+            if previous
+                .parse::<Hotkey>()
+                .is_ok_and(|previous| previous == hotkey)
+            {
                 return Ok(());
             }
             return Err(format!("Binding '{binding_id}' is already registered"));
         }
         if hotkey_to_binding.values().any(|(_, chord)| {
-            chord.parse::<Hotkey>().is_ok_and(|registered| registered == hotkey)
+            chord
+                .parse::<Hotkey>()
+                .is_ok_and(|registered| registered == hotkey)
         }) {
             return Err(format!("Shortcut '{hotkey_string}' is already in use"));
         }
@@ -282,12 +291,19 @@ impl HandyKeysState {
             .map_err(|_| "Failed to receive unregister response")?
     }
 
+    /// Return the chord currently owned by this action in the manager thread.
     pub fn registered(&self, id: &str) -> Result<Option<String>, String> {
         let (tx, rx) = mpsc::channel();
-        self.command_sender.lock().map_err(|_| "Failed to lock command_sender")?
-            .send(ManagerCommand::Registered { binding_id: id.to_string(), response: tx })
+        self.command_sender
+            .lock()
+            .map_err(|_| "Failed to lock command_sender")?
+            .send(ManagerCommand::Registered {
+                binding_id: id.to_string(),
+                response: tx,
+            })
             .map_err(|_| "Failed to send registration query")?;
-        rx.recv().map_err(|_| "Failed to receive registration query")
+        rx.recv()
+            .map_err(|_| "Failed to receive registration query".to_string())
     }
 
     /// Start recording mode for a specific binding

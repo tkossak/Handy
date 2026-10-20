@@ -28,7 +28,10 @@ fn registrations(app: &AppHandle) -> tauri::State<'_, RegisteredShortcuts> {
 /// Only registrations owned by this backend, never another application's chord.
 pub fn registered_shortcut(app: &AppHandle, id: &str) -> Result<Option<ShortcutBinding>, String> {
     let state = registrations(app);
-    let registered = state.bindings.lock().map_err(|_| "Shortcut registrations lock poisoned")?;
+    let registered = state
+        .bindings
+        .lock()
+        .map_err(|_| "Shortcut registrations lock poisoned")?;
     Ok(registered.get(id).cloned())
 }
 
@@ -63,24 +66,49 @@ pub fn normalize_shortcut(raw: &str) -> Result<String, String> {
     if raw.trim().is_empty() {
         return Err("Shortcut cannot be empty".into());
     }
-    let mut parts: Vec<_> = raw.split('+').map(|part| {
-        let part = part.trim();
-        if ["meta", "win", "windows"].iter().any(|alias| part.eq_ignore_ascii_case(alias)) {
-            "super"
-        } else if part.eq_ignore_ascii_case("opt") {
-            "alt"
-        } else {
-            part
-        }
-    }).collect();
-    if parts.iter().any(|part| part.eq_ignore_ascii_case("fn") || part.eq_ignore_ascii_case("function")) {
+    let mut parts: Vec<_> = raw
+        .split('+')
+        .map(|part| {
+            let part = part.trim();
+            if ["meta", "win", "windows"]
+                .iter()
+                .any(|alias| part.eq_ignore_ascii_case(alias))
+            {
+                "super"
+            } else if part.eq_ignore_ascii_case("opt") {
+                "alt"
+            } else {
+                part
+            }
+        })
+        .collect();
+    if parts
+        .iter()
+        .any(|part| part.eq_ignore_ascii_case("fn") || part.eq_ignore_ascii_case("function"))
+    {
         return Err("The 'fn' key is not supported by Tauri global shortcuts".into());
     }
-    parts.sort_by_key(|part| ![
-        "ctrl", "control", "shift", "alt", "option", "command", "cmd", "super",
-        "commandorcontrol", "commandorctrl", "cmdorctrl", "cmdorcontrol",
-    ].iter().any(|modifier| part.eq_ignore_ascii_case(modifier)));
-    let shortcut = parts.join("+").parse::<Shortcut>()
+    parts.sort_by_key(|part| {
+        ![
+            "ctrl",
+            "control",
+            "shift",
+            "alt",
+            "option",
+            "command",
+            "cmd",
+            "super",
+            "commandorcontrol",
+            "commandorctrl",
+            "cmdorctrl",
+            "cmdorcontrol",
+        ]
+        .iter()
+        .any(|modifier| part.eq_ignore_ascii_case(modifier))
+    });
+    let shortcut = parts
+        .join("+")
+        .parse::<Shortcut>()
         .map_err(|error| format!("Failed to parse shortcut '{raw}': {error}"))?;
     let mut normalized = shortcut.into_string();
     normalized.make_ascii_lowercase();
@@ -111,14 +139,19 @@ pub fn register_shortcut(app: &AppHandle, mut binding: ShortcutBinding) -> Resul
     }
     binding.current_binding = normalize_shortcut(&binding.current_binding)?;
     let state = registrations(app);
-    let mut registered = state.bindings.lock().map_err(|_| "Shortcut registrations lock poisoned")?;
+    let mut registered = state
+        .bindings
+        .lock()
+        .map_err(|_| "Shortcut registrations lock poisoned")?;
     if let Some(previous) = registered.get(&binding.id) {
         if normalize_shortcut(&previous.current_binding)? == binding.current_binding {
             return Ok(());
         }
         return Err(format!("Binding '{}' is already registered", binding.id));
     }
-    let shortcut = binding.current_binding.parse::<Shortcut>()
+    let shortcut = binding
+        .current_binding
+        .parse::<Shortcut>()
         .map_err(|error| error.to_string())?;
 
     // Prevent duplicate registrations that would silently shadow one another
@@ -167,14 +200,20 @@ pub fn register_shortcut(app: &AppHandle, mut binding: ShortcutBinding) -> Resul
 /// Unregister a shortcut from Tauri's global-shortcut plugin
 pub fn unregister_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<(), String> {
     let state = registrations(app);
-    let mut registered = state.bindings.lock().map_err(|_| "Shortcut registrations lock poisoned")?;
+    let mut registered = state
+        .bindings
+        .lock()
+        .map_err(|_| "Shortcut registrations lock poisoned")?;
     let Some(previous) = registered.get(&binding.id) else {
         return Ok(());
     };
-    if normalize_shortcut(&previous.current_binding)? != normalize_shortcut(&binding.current_binding)? {
+    if normalize_shortcut(&previous.current_binding)?
+        != normalize_shortcut(&binding.current_binding)?
+    {
         return Ok(());
     }
-    let shortcut = normalize_shortcut(&previous.current_binding)?.parse::<Shortcut>()
+    let shortcut = normalize_shortcut(&previous.current_binding)?
+        .parse::<Shortcut>()
         .map_err(|error| error.to_string())?;
 
     app.global_shortcut().unregister(shortcut).map_err(|e| {

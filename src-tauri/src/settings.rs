@@ -1394,7 +1394,9 @@ impl BindingSettingsStore for std::sync::Arc<tauri_plugin_store::Store<tauri::Wr
     fn set_settings(&mut self, settings: Option<serde_json::Value>) {
         match settings {
             Some(settings) => self.set("settings", settings),
-            None => { self.delete("settings"); }
+            None => {
+                self.delete("settings");
+            }
         }
     }
     fn save(&mut self) -> Result<(), String> {
@@ -1410,8 +1412,13 @@ pub(crate) fn commit_bindings_to_store(
     let mut next = previous.clone().unwrap_or_else(|| {
         serde_json::to_value(get_default_settings()).expect("default settings serialize")
     });
-    let object = next.as_object_mut().ok_or("Settings store is not an object")?;
-    object.insert("bindings".into(), serde_json::to_value(bindings).map_err(|error| error.to_string())?);
+    let object = next
+        .as_object_mut()
+        .ok_or("Settings store is not an object")?;
+    object.insert(
+        "bindings".into(),
+        serde_json::to_value(bindings).map_err(|error| error.to_string())?,
+    );
     store.set_settings(Some(next));
     if let Err(error) = store.save() {
         // Reset the cache before any later autosave or unrelated setting write.
@@ -1428,7 +1435,8 @@ pub(crate) fn commit_bindings(
     app: &AppHandle,
     bindings: &HashMap<String, ShortcutBinding>,
 ) -> Result<(), String> {
-    let mut store = app.store(crate::portable::store_path(SETTINGS_STORE_PATH))
+    let mut store = app
+        .store(crate::portable::store_path(SETTINGS_STORE_PATH))
         .map_err(|error| format!("Could not open settings store: {error}"))?;
     commit_bindings_to_store(&mut store, bindings)
 }
@@ -1497,7 +1505,11 @@ mod tests {
             fail_next_save: true,
         };
         let mut bindings = settings.bindings.clone();
-        bindings.get_mut("transcribe").unwrap().current_binding.clear();
+        bindings
+            .get_mut("transcribe")
+            .unwrap()
+            .current_binding
+            .clear();
 
         assert!(commit_bindings_to_store(&mut store, &bindings).is_err());
 
@@ -1517,20 +1529,39 @@ mod tests {
             fail_next_save: false,
         };
         let mut bindings = settings.bindings.clone();
-        for id in ["transcribe", "transcribe_with_post_process", "transcribe_language_1"] {
+        for id in [
+            "transcribe",
+            "transcribe_with_post_process",
+            "transcribe_language_1",
+        ] {
             bindings.get_mut(id).unwrap().current_binding.clear();
         }
-        bindings.get_mut("transcribe_language_2").unwrap().current_binding = "ctrl+space".into();
+        bindings
+            .get_mut("transcribe_language_2")
+            .unwrap()
+            .current_binding = "ctrl+space".into();
 
         commit_bindings_to_store(&mut store, &bindings).unwrap();
         let saved = store.disk.unwrap();
         let mut reloaded: AppSettings = serde_json::from_value(saved.clone()).unwrap();
         apply_settings_migrations(&mut reloaded, &saved);
 
-        for id in ["transcribe", "transcribe_with_post_process", "transcribe_language_1"] {
-            assert_eq!(get_stored_binding(&reloaded, id).unwrap().current_binding, "");
+        for id in [
+            "transcribe",
+            "transcribe_with_post_process",
+            "transcribe_language_1",
+        ] {
+            assert_eq!(
+                get_stored_binding(&reloaded, id).unwrap().current_binding,
+                ""
+            );
         }
-        assert_eq!(get_stored_binding(&reloaded, "transcribe_language_2").unwrap().current_binding, "ctrl+space");
+        assert_eq!(
+            get_stored_binding(&reloaded, "transcribe_language_2")
+                .unwrap()
+                .current_binding,
+            "ctrl+space"
+        );
         assert_eq!(reloaded.selected_model, "preserved-model");
         assert_eq!(reloaded.recognition_language.pair, ["pl", "en"]);
     }

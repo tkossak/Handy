@@ -160,13 +160,7 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
       // Stop backend recording on unmount to prevent orphaned recording loops
       commands.stopHandyKeysRecording().catch(console.error);
     };
-  }, [
-    isRecording,
-    shortcutId,
-    updateBinding,
-    cancelRecording,
-    t,
-  ]);
+  }, [isRecording, shortcutId, updateBinding, cancelRecording, t]);
 
   // Handle click outside
   useEffect(() => {
