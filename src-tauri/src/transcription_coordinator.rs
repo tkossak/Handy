@@ -535,7 +535,7 @@ pub struct TranscriptionCoordinator {
 }
 
 pub fn is_transcribe_binding(id: &str) -> bool {
-    id == "transcribe" || id == "transcribe_with_post_process"
+    matches!(id, "transcribe" | "transcribe_with_post_process" | "transcribe_language_1" | "transcribe_language_2")
 }
 
 impl TranscriptionCoordinator {
@@ -1221,6 +1221,39 @@ mod tests {
             mode,
             hold_threshold: HOLD_THRESHOLD,
             external: false,
+        }
+    }
+
+    #[test]
+    fn language_shortcuts_share_activation_modes_but_only_the_initiator_can_stop() {
+        for owner in ["transcribe_language_1", "transcribe_language_2"] {
+            for mode in [ShortcutActivation::PushToTalk, ShortcutActivation::Toggle, ShortcutActivation::HoldOrToggle] {
+                let mut state = CoordinatorState::new();
+                let now = Instant::now();
+                let event = |id: &str, pressed| InputEvent {
+                    binding_id: id.into(),
+                    hotkey_string: id.into(),
+                    ..input(mode, pressed)
+                };
+                assert_eq!(state.on_input(event(owner, true), now), Some(Effect::Start {
+                    binding_id: owner.into(), hotkey_string: owner.into(),
+                }));
+                for (index, other) in ["transcribe", "transcribe_language_1", "transcribe_language_2", "transcribe_with_post_process"].into_iter().filter(|id| *id != owner).enumerate() {
+                    assert!(state.on_input(event(other, true), now + ms(100 + index as u64 * 100)).is_none());
+                    assert!(state.on_input(event(other, false), now + ms(150 + index as u64 * 100)).is_none());
+                    assert_eq!(state.stage, Stage::Recording(owner.into()));
+                }
+                let stopped = if mode == ShortcutActivation::Toggle {
+                    state.on_input(event(owner, true), now + ms(800))
+                } else {
+                    assert!(state.on_input(event(owner, false), now + ms(800)).is_none());
+                    state.on_grace_expired()
+                };
+                assert_eq!(stopped, Some(Effect::Stop {
+                    binding_id: owner.into(), hotkey_string: owner.into(),
+                }));
+                assert_eq!(state.stage, Stage::Processing);
+            }
         }
     }
 

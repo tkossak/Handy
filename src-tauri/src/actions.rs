@@ -19,7 +19,7 @@ use log::{debug, error, warn};
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::future::Future;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::Manager;
 use tauri::{AppHandle, Emitter};
@@ -57,6 +57,30 @@ pub trait ShortcutAction: Send + Sync {
 // Transcribe Action
 struct TranscribeAction {
     post_process: bool,
+    // Set only after capture starts successfully; cancellation is superseded
+    // by the next start, and stop consumes it before the async decode begins.
+    language_override: Mutex<Option<String>>,
+}
+
+/// Capture picker-position intent only for the two language-specific actions.
+/// Ordinary dictation deliberately keeps reading its settings at decode time.
+pub fn dictation_language_override(
+    intent: &crate::settings::RecognitionLanguage,
+    binding_id: &str,
+) -> Result<Option<String>, String> {
+    let index = match binding_id {
+        "transcribe_language_1" => 0,
+        "transcribe_language_2" => 1,
+        _ => return Ok(None),
+    };
+    if intent.mode != crate::settings::RecognitionMode::Pair {
+        return Err("Language-specific shortcuts require Language pair mode.".into());
+    }
+    intent.pair.get(index)
+        .filter(|language| !language.trim().is_empty() && language.as_str() != "auto")
+        .cloned()
+        .map(Some)
+        .ok_or_else(|| format!("Choose a recognition language for Language {}.", index + 1))
 }
 
 /// Field name for structured output JSON schema
@@ -389,6 +413,16 @@ impl ShortcutAction for TranscribeAction {
     fn start(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
         let start_time = Instant::now();
         debug!("TranscribeAction::start called for binding: {}", binding_id);
+        let language_override = match dictation_language_override(
+            &get_settings(app).recognition_language,
+            binding_id,
+        ) {
+            Ok(language) => language,
+            Err(error) => {
+                let _ = app.emit("transcription-error", error);
+                return;
+            }
+        };
 
         // Load model in the background
         let tm = app.state::<Arc<TranscriptionManager>>();
@@ -454,7 +488,7 @@ impl ShortcutAction for TranscribeAction {
             long_form: false,
         };
         if live_decode(expected_model, settings.long_form_chunking) != LiveDecode::None {
-            tm.start_stream();
+            tm.start_stream(language_override.clone());
         }
         let plan_elapsed = plan_started.elapsed();
 
@@ -482,6 +516,7 @@ impl ShortcutAction for TranscribeAction {
         let recording_start_time = Instant::now();
         match rm.try_start_recording(&binding_id, vad_policy) {
             Ok(readiness) => {
+                *self.language_override.lock().unwrap_or_else(|e| e.into_inner()) = language_override;
                 debug!(
                     "Recording request accepted in {:?}; waiting for first microphone samples",
                     recording_start_time.elapsed()
@@ -602,6 +637,7 @@ impl ShortcutAction for TranscribeAction {
 
         let binding_id = binding_id.to_string(); // Clone binding_id for the async task
         let post_process = self.post_process;
+        let language_override = self.language_override.lock().unwrap_or_else(|e| e.into_inner()).take();
         let cancel_generation = rm.cancel_generation();
 
         tauri::async_runtime::spawn(async move {
@@ -650,7 +686,7 @@ impl ShortcutAction for TranscribeAction {
                     // otherwise a batch run of the samples. A cancel is surfaced
                     // as an error, so it never starts a batch run.
                     let transcription_time = Instant::now();
-                    let transcription_result = tm.transcribe_recording(samples);
+                    let transcription_result = tm.transcribe_recording(samples, language_override.as_deref());
 
                     // Await WAV save and verify
                     let wav_saved = match wav_handle.await {
@@ -856,12 +892,25 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
         "transcribe".to_string(),
         Arc::new(TranscribeAction {
             post_process: false,
+            language_override: Mutex::new(None),
         }) as Arc<dyn ShortcutAction>,
     );
     map.insert(
         "transcribe_with_post_process".to_string(),
-        Arc::new(TranscribeAction { post_process: true }) as Arc<dyn ShortcutAction>,
+        Arc::new(TranscribeAction {
+            post_process: true,
+            language_override: Mutex::new(None),
+        }) as Arc<dyn ShortcutAction>,
     );
+    for id in ["transcribe_language_1", "transcribe_language_2"] {
+        map.insert(
+            id.to_string(),
+            Arc::new(TranscribeAction {
+                post_process: false,
+                language_override: Mutex::new(None),
+            }) as Arc<dyn ShortcutAction>,
+        );
+    }
     map.insert(
         "cancel".to_string(),
         Arc::new(CancelAction) as Arc<dyn ShortcutAction>,
@@ -886,6 +935,31 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
+
+    #[test]
+    fn language_shortcuts_follow_picker_positions_and_capture_only_their_own_language() {
+        use crate::settings::{RecognitionLanguage, RecognitionMode};
+        let mut intent = RecognitionLanguage {
+            mode: RecognitionMode::Pair,
+            single_language: "ja".into(),
+            pair: vec!["pl".into(), "en".into()],
+        };
+        let captured = super::dictation_language_override(&intent, "transcribe_language_1").unwrap();
+        assert_eq!(captured.as_deref(), Some("pl"));
+        assert_eq!(super::dictation_language_override(&intent, "transcribe_language_2").unwrap().as_deref(), Some("en"));
+        assert_eq!(super::dictation_language_override(&intent, "transcribe").unwrap(), None);
+        assert_eq!(super::dictation_language_override(&intent, "transcribe_with_post_process").unwrap(), None);
+        intent.pair.swap(0, 1);
+        assert_eq!(super::dictation_language_override(&intent, "transcribe_language_1").unwrap().as_deref(), Some("en"));
+        assert_eq!(captured.as_deref(), Some("pl"));
+        assert_eq!(intent.single_language, "ja");
+        for mode in [RecognitionMode::Auto, RecognitionMode::Single] {
+            intent.mode = mode;
+            assert!(super::dictation_language_override(&intent, "transcribe_language_1").is_err());
+            assert!(super::dictation_language_override(&intent, "transcribe_language_2").is_err());
+            assert_eq!(super::dictation_language_override(&intent, "transcribe").unwrap(), None);
+        }
+    }
     #[test]
     fn blank_transcription_is_detected() {
         assert!(is_blank_transcription(""));

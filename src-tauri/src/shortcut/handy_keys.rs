@@ -443,6 +443,9 @@ pub fn init_shortcuts(app: &AppHandle) -> Result<(), String> {
             .get(&id)
             .cloned()
             .unwrap_or(default_binding);
+        if !super::binding_is_enabled(&user_settings, &binding) {
+            continue;
+        }
 
         if let Err(e) = state.register(&binding) {
             error!(
@@ -459,6 +462,9 @@ pub fn init_shortcuts(app: &AppHandle) -> Result<(), String> {
 
 /// Register a shortcut
 pub fn register_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<(), String> {
+    if !super::binding_is_enabled(&get_settings(app), &binding) {
+        return Ok(());
+    }
     let state = app
         .try_state::<HandyKeysState>()
         .ok_or("HandyKeysState not initialized")?;
@@ -467,6 +473,9 @@ pub fn register_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<()
 
 /// Unregister a shortcut
 pub fn unregister_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<(), String> {
+    if binding.current_binding.trim().is_empty() {
+        return Ok(());
+    }
     let state = app
         .try_state::<HandyKeysState>()
         .ok_or("HandyKeysState not initialized")?;

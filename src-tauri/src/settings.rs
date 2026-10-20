@@ -1012,6 +1012,18 @@ pub fn get_default_settings() -> AppSettings {
             current_binding: default_post_process_shortcut.to_string(),
         },
     );
+    for (id, number) in [("transcribe_language_1", 1), ("transcribe_language_2", 2)] {
+        bindings.insert(
+            id.to_string(),
+            ShortcutBinding {
+                id: id.to_string(),
+                name: format!("Language {number} Shortcut"),
+                description: format!("Dictate using the language selected in Language {number}."),
+                default_binding: String::new(),
+                current_binding: String::new(),
+            },
+        );
+    }
     bindings.insert(
         "cancel".to_string(),
         ShortcutBinding {
@@ -1149,14 +1161,6 @@ pub fn get_settings(app: &AppHandle) -> AppSettings {
             updated = true;
         }
 
-        // Merge in any bindings added since this store was written.
-        for (key, value) in get_default_settings().bindings {
-            if let std::collections::hash_map::Entry::Vacant(entry) = settings.bindings.entry(key) {
-                debug!("Adding missing binding: {}", entry.key());
-                entry.insert(value);
-                updated = true;
-            }
-        }
 
         if updated {
             store.set("settings", serde_json::to_value(&settings).unwrap());
@@ -1219,6 +1223,15 @@ fn apply_settings_migrations(
     settings_value: &serde_json::Value,
 ) -> bool {
     let mut updated = false;
+
+    // Missing actions acquire defaults; explicit Unassigned choices stay empty.
+    for (key, value) in get_default_settings().bindings {
+        if let std::collections::hash_map::Entry::Vacant(entry) = settings.bindings.entry(key) {
+            debug!("Adding missing binding: {}", entry.key());
+            entry.insert(value);
+            updated = true;
+        }
+    }
 
     // One-time onboarding migration: users with an explicit selected model have
     // already made it through model selection. Users who merely have compatible
@@ -1394,6 +1407,36 @@ pub fn get_recording_retention_period(app: &AppHandle) -> RecordingRetentionPeri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn language_shortcuts_migrate_unassigned_and_keep_independent_assignments_on_reload() {
+        let mut raw = serde_json::to_value(get_default_settings()).unwrap();
+        raw["bindings"].as_object_mut().unwrap().remove("transcribe_language_1");
+        raw["bindings"].as_object_mut().unwrap().remove("transcribe_language_2");
+        raw["bindings"]["transcribe"]["current_binding"] = serde_json::json!("");
+        let mut settings: AppSettings = serde_json::from_value(raw.clone()).unwrap();
+        apply_settings_migrations(&mut settings, &raw);
+        assert_eq!(get_stored_binding(&settings, "transcribe").unwrap().current_binding, "");
+        for id in ["transcribe_language_1", "transcribe_language_2"] {
+            assert_eq!(get_stored_binding(&settings, id).unwrap().current_binding, "");
+        }
+
+        settings.bindings.get_mut("transcribe_language_1").unwrap().current_binding = "ctrl+1".into();
+        settings.bindings.get_mut("transcribe_language_2").unwrap().current_binding = "ctrl+2".into();
+        let saved = serde_json::to_value(&settings).unwrap();
+        let mut reloaded: AppSettings = serde_json::from_value(saved.clone()).unwrap();
+        apply_settings_migrations(&mut reloaded, &saved);
+        assert_eq!(get_stored_binding(&reloaded, "transcribe_language_1").unwrap().current_binding, "ctrl+1");
+        assert_eq!(get_stored_binding(&reloaded, "transcribe_language_2").unwrap().current_binding, "ctrl+2");
+
+        reloaded.bindings.get_mut("transcribe_language_1").unwrap().current_binding.clear();
+        let saved = serde_json::to_value(&reloaded).unwrap();
+        let mut reloaded: AppSettings = serde_json::from_value(saved.clone()).unwrap();
+        apply_settings_migrations(&mut reloaded, &saved);
+        assert_eq!(get_stored_binding(&reloaded, "transcribe_language_1").unwrap().current_binding, "");
+        assert_eq!(get_stored_binding(&reloaded, "transcribe_language_2").unwrap().current_binding, "ctrl+2");
+        assert_eq!(get_stored_binding(&reloaded, "transcribe").unwrap().current_binding, "");
+    }
 
     #[test]
     fn stored_binding_returns_the_requested_binding() {

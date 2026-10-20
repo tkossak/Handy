@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
 import { SettingContainer } from "../ui/SettingContainer";
 import { useSettings } from "../../hooks/useSettings";
+import { ShortcutInput } from "./ShortcutInput";
 import { useModelStore } from "../../stores/modelStore";
 import {
   commands,
@@ -409,25 +410,32 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
         {mode === "pair" && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {[0, 1].map((index) => (
-              <LanguagePicker
-                key={index}
-                label={t("settings.general.language.pairLanguage", {
-                  number: index + 1,
-                })}
-                value={intent.pair[index] ?? ""}
-                options={optionsFor(intent.pair[index] ?? "")}
-                disabled={disabled}
-                onSelect={(language) => {
-                  void updateSetting("recognition_language", {
-                    ...intent,
-                    pair:
-                      index === 0
-                        ? [language, intent.pair[1] ?? ""]
-                        : [intent.pair[0] ?? "", language],
-                  });
-                }}
-                selector={`candidate-${index + 1}`}
-              />
+              <div key={index} className="space-y-2">
+                <LanguagePicker
+                  label={t("settings.general.language.pairLanguage", {
+                    number: index + 1,
+                  })}
+                  value={intent.pair[index] ?? ""}
+                  options={optionsFor(intent.pair[index] ?? "")}
+                  disabled={disabled}
+                  onSelect={(language) => {
+                    void updateSetting("recognition_language", {
+                      ...intent,
+                      pair:
+                        index === 0
+                          ? [language, intent.pair[1] ?? ""]
+                          : [intent.pair[0] ?? "", language],
+                    });
+                  }}
+                  selector={`candidate-${index + 1}`}
+                />
+                <ShortcutInput
+                  shortcutId={`transcribe_language_${index + 1}`}
+                  allowClear
+                  disabled={disabled}
+                  grouped
+                />
+              </div>
             ))}
           </div>
         )}

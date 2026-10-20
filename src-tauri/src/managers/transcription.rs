@@ -809,7 +809,9 @@ impl TranscriptionManager {
     /// worker idles until finalize/cancel and reports `None` so the caller
     /// falls back to batch transcription. Frames sent before the decode begins
     /// queue on the channel and are not lost.
-    pub fn start_stream(&self) {
+    /// `language_override` is captured by a language-specific action at start;
+    /// `None` preserves ordinary dictation's existing settings-driven planning.
+    pub fn start_stream(&self, language_override: Option<String>) {
         if self.router.is_open() || self.active_stream_worker.load(Ordering::Acquire) != 0 {
             warn!("start_stream called while a stream worker is already active");
             return;
@@ -827,7 +829,7 @@ impl TranscriptionManager {
         self.stream_active.store(false, Ordering::Release);
 
         let manager = self.clone();
-        thread::spawn(move || manager.run_stream_worker(rx, cancelled, worker_id));
+        thread::spawn(move || manager.run_stream_worker(rx, cancelled, worker_id, language_override));
     }
 
     fn run_stream_worker(
@@ -835,6 +837,7 @@ impl TranscriptionManager {
         rx: mpsc::Receiver<StreamCmd>,
         cancelled: Arc<AtomicBool>,
         worker_id: u64,
+        language_override: Option<String>,
     ) {
         let _worker = StreamWorkerGuard {
             worker_id,
@@ -880,7 +883,7 @@ impl TranscriptionManager {
             ModelTraits::of(&info),
             get_settings(&self.app_handle).long_form_chunking,
         );
-        let Some(mut session) = LiveSession::begin(self, mode, &info, &model_id) else {
+        let Some(mut session) = LiveSession::begin(self, mode, &info, &model_id, language_override.as_deref()) else {
             // Unsupported recognition intent also returns no live decode;
             // the guarded batch path reports its error when recording stops.
             self.router.clear();
@@ -970,15 +973,17 @@ impl TranscriptionManager {
     /// Transcribe a whole clip in batch: a re-transcribed history entry, or
     /// a file from the CLI.
     pub fn transcribe(&self, audio: Vec<f32>) -> Result<String> {
-        self.complete(Instant::now(), audio, None)
+        self.complete(Instant::now(), audio, None, None)
     }
 
     /// Transcribe a finished recording: what its live decode produced, or a
     /// batch run of the whole recording when there is no live result.
-    pub fn transcribe_recording(&self, samples: Vec<f32>) -> Result<String> {
+    /// The optional language is the initiating action's frozen choice, also
+    /// used by batch fallback when live decode cannot run.
+    pub fn transcribe_recording(&self, samples: Vec<f32>, language_override: Option<&str>) -> Result<String> {
         let started = Instant::now();
         let live = self.finalize_live(samples.len())?;
-        self.complete(started, samples, live)
+        self.complete(started, samples, live, language_override)
     }
 
     /// The final text of one transcription, from its live result or else a
@@ -988,6 +993,7 @@ impl TranscriptionManager {
         started: Instant,
         audio: Vec<f32>,
         live: Option<RunOutcome>,
+        language_override: Option<&str>,
     ) -> Result<String> {
         #[cfg(debug_assertions)]
         if std::env::var("HANDY_FORCE_TRANSCRIPTION_FAILURE").is_ok() {
@@ -1006,7 +1012,7 @@ impl TranscriptionManager {
 
         let outcome = match live {
             Some(outcome) => outcome,
-            None => self.decode_batch(audio)?,
+            None => self.decode_batch(audio, language_override)?,
         };
         let settings = get_settings(&self.app_handle);
         let final_result = finish_text(outcome, &settings);
@@ -1043,7 +1049,7 @@ impl TranscriptionManager {
 
     /// Decode a whole clip with the loaded model, loading it first if a load
     /// is under way.
-    fn decode_batch(&self, audio: Vec<f32>) -> Result<RunOutcome> {
+    fn decode_batch(&self, audio: Vec<f32>, language_override: Option<&str>) -> Result<RunOutcome> {
         // A cancel from here on (during the model-load wait or chunk planning
         // included) stops every run of this transcription.
         let mark = self.engine.cancel_mark();
@@ -1079,7 +1085,7 @@ impl TranscriptionManager {
                 "Model failed to load after auto-load attempt. Please check your model settings."
             ));
         };
-        self.transcribe_cpp(mark, info, audio, &settings, &active_model)
+        self.transcribe_cpp(mark, info, audio, &settings, &active_model, language_override)
     }
 
     /// transcribe-cpp: the model runs in the engine's worker process, which
@@ -1092,8 +1098,9 @@ impl TranscriptionManager {
         audio: Vec<f32>,
         settings: &AppSettings,
         active_model: &str,
+        language_override: Option<&str>,
     ) -> Result<RunOutcome> {
-        let setup = run_setup(&info, settings)?;
+        let setup = run_setup(&info, settings, language_override)?;
         let whole = |pcm: Vec<f32>| {
             self.run_batch(mark, pcm, &setup.run_options, active_model)
                 .map_err(engine_error)
@@ -1177,6 +1184,7 @@ struct RunSetup {
     languages: Vec<String>,
     applied_language_hint: Option<String>,
     output_was_translated: bool,
+    forced_language: bool,
 }
 
 impl RunSetup {
@@ -1192,6 +1200,14 @@ impl RunSetup {
         settings: &AppSettings,
         model_detected_language: Option<String>,
     ) -> OutputLanguageEvidence {
+        if self.forced_language {
+            if self.output_was_translated {
+                return OutputLanguageEvidence::TranslatedToEnglish;
+            }
+            if let Some(language) = &self.applied_language_hint {
+                return OutputLanguageEvidence::UserSelected(language.clone());
+            }
+        }
         with_model_detected_language(
             resolve_output_language_evidence(
                 settings,
@@ -1207,7 +1223,7 @@ impl RunSetup {
 /// The loaded model's live capabilities (cheap GGUF-metadata reads) are the
 /// source of truth, not the ModelManager copy; translate is gated on what the
 /// model advertises.
-fn run_setup(info: &LoadedInfo, settings: &AppSettings) -> Result<RunSetup> {
+fn run_setup(info: &LoadedInfo, settings: &AppSettings, language_override: Option<&str>) -> Result<RunSetup> {
     let model_supports_translate = info.capabilities.supports_translate;
     let languages = info.capabilities.languages.clone();
     debug!(
@@ -1224,6 +1240,7 @@ fn run_setup(info: &LoadedInfo, settings: &AppSettings) -> Result<RunSetup> {
         settings.translate_to_english,
         &settings.recognition_language,
         info,
+        language_override,
     )?;
     let output_was_translated = run_plan.target_language.as_deref() == Some("en");
     let applied_language_hint = run_plan.language.clone();
@@ -1250,6 +1267,7 @@ fn run_setup(info: &LoadedInfo, settings: &AppSettings) -> Result<RunSetup> {
         languages,
         applied_language_hint,
         output_was_translated,
+        forced_language: language_override.is_some(),
     })
 }
 
@@ -1496,7 +1514,19 @@ fn transcribe_cpp_run_plan(
     translate_to_english: bool,
     intent: &crate::settings::RecognitionLanguage,
     info: &LoadedInfo,
+    language_override: Option<&str>,
 ) -> Result<TranscribeCppRunPlan> {
+    let forced_intent;
+    let intent = if let Some(language) = language_override {
+        forced_intent = RecognitionLanguage {
+            mode: RecognitionMode::Single,
+            single_language: language.to_string(),
+            pair: Vec::new(),
+        };
+        &forced_intent
+    } else {
+        intent
+    };
     let resolution = recognition_status_for_loaded_model(intent, info)
         .into_result()
         .map_err(anyhow::Error::msg)?;
@@ -1923,6 +1953,61 @@ mod tests {
     }
 
     #[test]
+    fn forced_dictation_uses_single_language_without_replacing_pair_or_ordinary_detection() {
+        let model = loaded_model("whisper", &["pl", "en", "zh"]);
+        let mut settings = AppSettings {
+            recognition_language: pair_intent(&["pl", "en"]),
+            ..Default::default()
+        };
+        let saved = settings.recognition_language.clone();
+        for language in ["pl", "en"] {
+            let setup = run_setup(&model, &settings, Some(language)).unwrap();
+            assert_eq!(setup.run_options.language.as_deref(), Some(language));
+            assert!(setup.run_options.language_candidates.is_empty());
+            assert_eq!(setup.output_language(&settings, None), OutputLanguageEvidence::UserSelected(language.into()));
+            assert_eq!(settings.recognition_language, saved);
+        }
+        let ordinary = run_setup(&model, &settings, None).unwrap();
+        assert_eq!(ordinary.run_options.language, None);
+        assert_eq!(ordinary.run_options.language_candidates, ["en", "pl"]);
+
+        let captured = settings.recognition_language.pair[0].clone();
+        settings.recognition_language.mode = RecognitionMode::Single;
+        settings.recognition_language.single_language = "zh".into();
+        settings.recognition_language.pair = languages(&["zh", "en"]);
+        let forced = run_setup(&model, &settings, Some(&captured)).unwrap();
+        assert_eq!(forced.run_options.language.as_deref(), Some("pl"));
+        assert_eq!(forced.output_language(&settings, None), OutputLanguageEvidence::UserSelected("pl".into()));
+        assert_eq!(run_setup(&model, &settings, None).unwrap().run_options.language.as_deref(), Some("zh"));
+    }
+
+    #[test]
+    fn forced_language_uses_single_translation_rule_and_script_handling() {
+        let model = loaded_model("whisper", &["pl", "en", "zh"]);
+        let mut settings = AppSettings {
+            recognition_language: pair_intent(&["pl", "en"]),
+            translate_to_english: true,
+            chinese_script: ChineseScript::Traditional,
+            ..Default::default()
+        };
+        let english = run_setup(&model, &settings, Some("en")).unwrap();
+        assert!(matches!(english.run_options.task, Task::Transcribe));
+        assert_eq!(english.run_options.target_language, None);
+        let polish = run_setup(&model, &settings, Some("pl")).unwrap();
+        assert!(matches!(polish.run_options.task, Task::Translate));
+        assert_eq!(polish.run_options.target_language.as_deref(), Some("en"));
+        assert_eq!(polish.output_language(&settings, None), OutputLanguageEvidence::TranslatedToEnglish);
+        settings.translate_to_english = false;
+        let chinese = run_setup(&model, &settings, Some("zh")).unwrap();
+        assert_eq!(finish_text(RunOutcome {
+            setup: chinese,
+            text: "汉语".into(),
+            model_detected_language: None,
+        }, &settings), "漢語");
+        assert_eq!(settings.recognition_language, pair_intent(&["pl", "en"]));
+    }
+
+    #[test]
     fn pair_eligibility_uses_loaded_arch_and_explicit_native_support() {
         let intent = pair_intent(&["pl", "en"]);
         let whisper = loaded_model("whisper", &["pl", "en", "de"]);
@@ -1975,7 +2060,7 @@ mod tests {
             long_form_chunking: true,
             ..Default::default()
         };
-        assert!(run_setup(&model, &settings).is_ok());
+        assert!(run_setup(&model, &settings, None).is_ok());
         assert_eq!(
             batch_decode(ModelTraits::of(&model), settings.long_form_chunking),
             BatchDecode::Whole
@@ -2000,7 +2085,7 @@ mod tests {
                     translate_to_english,
                     ..Default::default()
                 };
-                assert!(run_setup(&model, &settings).is_err());
+                assert!(run_setup(&model, &settings, None).is_err());
             }
         }
         for invalid in [
@@ -2012,7 +2097,7 @@ mod tests {
                 recognition_language: invalid,
                 ..Default::default()
             };
-            assert!(run_setup(&loaded_model("whisper", &["zh", "en"]), &settings).is_err());
+            assert!(run_setup(&loaded_model("whisper", &["zh", "en"]), &settings, None).is_err());
         }
     }
 
@@ -2025,7 +2110,7 @@ mod tests {
             translate_to_english: true,
             ..Default::default()
         };
-        let setup = run_setup(&model, &settings).unwrap();
+        let setup = run_setup(&model, &settings, None).unwrap();
         assert!(matches!(setup.run_options.task, Task::Translate));
         assert_eq!(setup.run_options.target_language.as_deref(), Some("en"));
         assert_eq!(
@@ -2033,7 +2118,7 @@ mod tests {
             OutputLanguageEvidence::TranslatedToEnglish,
         );
         model.capabilities.supports_translate = false;
-        let unsupported = run_setup(&model, &settings).unwrap();
+        let unsupported = run_setup(&model, &settings, None).unwrap();
         assert!(matches!(unsupported.run_options.task, Task::Transcribe));
         assert_eq!(
             unsupported.output_language(&settings, Some("pl".into())),
@@ -2041,7 +2126,7 @@ mod tests {
         );
         model.capabilities.supports_translate = true;
         settings.translate_to_english = false;
-        let disabled = run_setup(&model, &settings).unwrap();
+        let disabled = run_setup(&model, &settings, None).unwrap();
         assert!(matches!(disabled.run_options.task, Task::Transcribe));
         assert_eq!(
             disabled.output_language(&settings, Some("de".into())),
