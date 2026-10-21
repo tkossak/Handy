@@ -10,7 +10,7 @@ use crate::engine_supervisor::{
 };
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::model::{
-    resolve_recognition_language, resolve_shortcut_translation_target, ModelManager,
+    resolve_recognition_language, resolve_shortcut_recognition_language, ModelManager,
     RecognitionLanguageError, RecognitionLanguageStatus, RecognitionResolution,
 };
 use crate::settings::{
@@ -710,10 +710,9 @@ impl TranscriptionManager {
         current_model.clone()
     }
 
-    /// Non-blocking admission check for a language shortcut. The selected
-    /// language is a translation target. A cold model with no translation
-    /// metadata remains pending, so capture can start while it loads. Every
-    /// decode still validates the loaded translation targets.
+    /// Non-blocking admission check for a shortcut's fixed recognition language.
+    /// Unknown catalog metadata stays pending so capture can start while the
+    /// model loads. Every decode validates the loaded recognition languages.
     pub fn forced_language_status(
         &self,
         model_id: &str,
@@ -721,31 +720,18 @@ impl TranscriptionManager {
     ) -> RecognitionLanguageStatus {
         if self.get_current_model().as_deref() == Some(model_id) {
             if let Some(info) = self.engine.loaded() {
-                return resolve_shortcut_translation_target(
+                return resolve_shortcut_recognition_language(
                     language,
-                    Some(info.capabilities.supports_translate),
-                    Some(&info.capabilities.translate_target_languages),
+                    Some(&info.capabilities.languages),
                 );
             }
         }
-        // A cold catalog model only advertises translation to English.
-        // Unknown metadata stays pending so capture can start.
-        let Some(model) = self.model_manager.get_model_info(model_id) else {
-            return RecognitionLanguageStatus::Unknown;
-        };
-        if model.supported_languages.is_empty() && !model.supports_translation {
-            return RecognitionLanguageStatus::Unknown;
-        }
-        if model.supports_translation
-            && crate::managers::model::canonical_language_code(language) == "en"
-        {
-            return RecognitionLanguageStatus::Unknown;
-        }
-        RecognitionLanguageStatus::Incompatible {
-            reason: RecognitionLanguageError::TranslationUnsupported {
-                language: language.to_string(),
-            },
-        }
+        let catalog_languages = self
+            .model_manager
+            .get_model_info(model_id)
+            .map(|model| model.supported_languages)
+            .filter(|languages| !languages.is_empty());
+        resolve_shortcut_recognition_language(language, catalog_languages.as_deref())
     }
 
     /// Use loaded worker facts for both saved and draft intent. Unknown custom
@@ -1153,7 +1139,7 @@ impl TranscriptionManager {
             run_setup(&info, settings, language_override).map_err(
                 |error| match language_override {
                     Some(language) => anyhow::anyhow!(
-                        "Cannot translate into '{language}' with model '{active_model}': {error}"
+                        "Cannot transcribe recognition language '{language}' with model '{active_model}': {error}"
                     ),
                     None => error,
                 },
@@ -1258,9 +1244,6 @@ impl RunSetup {
         model_detected_language: Option<String>,
     ) -> OutputLanguageEvidence {
         if self.forced_language {
-            if self.output_was_translated {
-                return OutputLanguageEvidence::TranslatedToEnglish;
-            }
             if let Some(language) = &self.applied_language_hint {
                 return OutputLanguageEvidence::UserSelected(language.clone());
             }
@@ -1304,16 +1287,7 @@ fn run_setup(
         language_override,
     )?;
     let output_was_translated = run_plan.target_language.as_deref() == Some("en");
-    // A shortcut's selected language is the translation target. English uses
-    // the translated-output evidence; any other target is the output language.
-    let applied_language_hint = if language_override.is_some() {
-        run_plan
-            .target_language
-            .clone()
-            .filter(|target| target != "en")
-    } else {
-        run_plan.language.clone()
-    };
+    let applied_language_hint = run_plan.language.clone();
 
     let run_options = RunOptions {
         task: run_plan.task,
@@ -1587,10 +1561,9 @@ fn transcribe_cpp_run_plan(
     language_override: Option<&str>,
 ) -> Result<TranscribeCppRunPlan> {
     if let Some(language) = language_override {
-        let target = match resolve_shortcut_translation_target(
+        let language = match resolve_shortcut_recognition_language(
             language,
-            Some(info.capabilities.supports_translate),
-            Some(&info.capabilities.translate_target_languages),
+            Some(&info.capabilities.languages),
         ) {
             RecognitionLanguageStatus::Ready {
                 resolution: RecognitionResolution::Single { language },
@@ -1600,15 +1573,15 @@ fn transcribe_cpp_run_plan(
             }
             other => {
                 return Err(anyhow::anyhow!(
-                    "translation into '{language}' is not available ({other:?})"
+                    "recognition language '{language}' is not available ({other:?})"
                 ));
             }
         };
         return Ok(TranscribeCppRunPlan {
-            task: Task::Translate,
-            language: None,
+            task: Task::Transcribe,
+            language: Some(language),
             language_candidates: Vec::new(),
-            target_language: Some(target),
+            target_language: None,
         });
     }
     let status = recognition_status_for_loaded_model(intent, info);
@@ -2036,54 +2009,47 @@ mod tests {
     }
 
     #[test]
-    fn language_shortcut_translates_into_the_selected_language() {
-        let model = loaded_model("whisper", &["pl", "en"]);
+    fn language_shortcuts_dictate_in_selected_languages_without_translation_support() {
+        let mut model = loaded_model("whisper", &["pl", "en"]);
+        model.capabilities.supports_translate = false;
+        model.capabilities.translate_target_languages.clear();
         let settings = AppSettings {
             recognition_language: pair_intent(&["pl", "en"]),
-            translate_to_english: false,
+            translate_to_english: true,
             ..Default::default()
         };
+        let saved = settings.recognition_language.clone();
 
-        let english = run_setup(&model, &settings, Some("en")).unwrap();
-        assert!(matches!(english.run_options.task, Task::Translate));
-        assert_eq!(english.run_options.target_language.as_deref(), Some("en"));
-        assert_eq!(english.run_options.language, None);
-        assert!(english.run_options.language_candidates.is_empty());
-        assert_eq!(
-            english.output_language(&settings, None),
-            OutputLanguageEvidence::TranslatedToEnglish
-        );
-
-        let Err(polish) = run_setup(&model, &settings, Some("pl")) else {
-            panic!("Polish shortcut was accepted without a translation target");
-        };
-        let polish = polish.to_string();
-        assert!(polish.contains("translate"), "{polish}");
-        assert!(polish.contains("'pl'"), "{polish}");
+        for (shortcut, language) in [
+            ("transcribe_language_1", "pl"),
+            ("transcribe_language_2", "en"),
+        ] {
+            let captured = crate::actions::dictation_language_override(
+                &settings.recognition_language,
+                shortcut,
+            )
+            .unwrap();
+            let setup = run_setup(&model, &settings, captured.as_deref()).unwrap();
+            assert!(matches!(setup.run_options.task, Task::Transcribe));
+            assert_eq!(setup.run_options.language.as_deref(), Some(language));
+            assert_eq!(setup.run_options.target_language, None);
+            assert!(setup.run_options.language_candidates.is_empty());
+            assert_eq!(
+                setup.output_language(&settings, None),
+                OutputLanguageEvidence::UserSelected(language.into())
+            );
+            assert_eq!(settings.recognition_language, saved);
+            assert!(settings.translate_to_english);
+        }
 
         let ordinary = run_setup(&model, &settings, None).unwrap();
         assert!(matches!(ordinary.run_options.task, Task::Transcribe));
         assert_eq!(ordinary.run_options.target_language, None);
         assert_eq!(ordinary.run_options.language_candidates, ["en", "pl"]);
-
-        let mut multilingual = model.clone();
-        multilingual.capabilities.translate_target_languages = languages(&["en", "pl"]);
-        let into_polish = run_setup(&multilingual, &settings, Some("pl")).unwrap();
-        assert!(matches!(into_polish.run_options.task, Task::Translate));
-        assert_eq!(
-            into_polish.run_options.target_language.as_deref(),
-            Some("pl")
-        );
-        assert_eq!(into_polish.run_options.language, None);
-        assert_eq!(
-            into_polish.output_language(&settings, None),
-            OutputLanguageEvidence::UserSelected("pl".into())
-        );
-        assert!(!settings.translate_to_english);
     }
 
     #[test]
-    fn forced_dictation_uses_single_language_without_replacing_pair_or_ordinary_detection() {
+    fn forced_dictation_keeps_its_captured_language_after_picker_and_mode_edits() {
         let model = loaded_model("whisper", &["pl", "en", "zh"]);
         let mut settings = AppSettings {
             recognition_language: pair_intent(&["pl", "en"]),
@@ -2091,22 +2057,27 @@ mod tests {
         };
         let saved = settings.recognition_language.clone();
         let english = run_setup(&model, &settings, Some("en")).unwrap();
-        assert!(matches!(english.run_options.task, Task::Translate));
-        assert_eq!(english.run_options.target_language.as_deref(), Some("en"));
-        assert!(run_setup(&model, &settings, Some("pl")).is_err());
+        assert!(matches!(english.run_options.task, Task::Transcribe));
+        assert_eq!(english.run_options.language.as_deref(), Some("en"));
+        assert_eq!(english.run_options.target_language, None);
         assert_eq!(settings.recognition_language, saved);
         let ordinary = run_setup(&model, &settings, None).unwrap();
         assert_eq!(ordinary.run_options.language, None);
         assert_eq!(ordinary.run_options.language_candidates, ["en", "pl"]);
 
-        let captured = settings.recognition_language.pair[0].clone();
+        let captured = crate::actions::dictation_language_override(
+            &settings.recognition_language,
+            "transcribe_language_1",
+        )
+        .unwrap();
         settings.recognition_language.mode = RecognitionMode::Single;
         settings.recognition_language.single_language = "zh".into();
         settings.recognition_language.pair = languages(&["zh", "en"]);
-        let Err(captured_error) = run_setup(&model, &settings, Some(&captured)) else {
-            panic!("captured Polish shortcut followed the edited settings");
-        };
-        assert!(captured_error.to_string().contains("'pl'"));
+        let polish = run_setup(&model, &settings, captured.as_deref()).unwrap();
+        assert!(matches!(polish.run_options.task, Task::Transcribe));
+        assert_eq!(polish.run_options.language.as_deref(), Some("pl"));
+        assert!(polish.run_options.language_candidates.is_empty());
+        assert_eq!(polish.run_options.target_language, None);
         assert_eq!(
             run_setup(&model, &settings, None)
                 .unwrap()
@@ -2118,27 +2089,32 @@ mod tests {
     }
 
     #[test]
-    fn forced_language_uses_single_translation_rule_and_script_handling() {
+    fn forced_dictation_bypasses_global_translation_and_preserves_script_handling() {
         let model = loaded_model("whisper", &["pl", "en", "zh"]);
-        let mut settings = AppSettings {
+        let settings = AppSettings {
             recognition_language: pair_intent(&["pl", "en"]),
             translate_to_english: true,
             chinese_script: ChineseScript::Traditional,
             ..Default::default()
         };
-        let english = run_setup(&model, &settings, Some("en")).unwrap();
-        assert!(matches!(english.run_options.task, Task::Translate));
-        assert_eq!(english.run_options.target_language.as_deref(), Some("en"));
-        assert_eq!(english.run_options.language, None);
-        let Err(polish) = run_setup(&model, &settings, Some("pl")) else {
-            panic!("Polish shortcut used recognition instead of rejecting translation");
-        };
-        assert!(polish.to_string().contains("translate"), "{polish}");
-        settings.translate_to_english = false;
-        let mut translating = model.clone();
-        translating.capabilities.translate_target_languages = languages(&["en", "zh"]);
-        let chinese = run_setup(&translating, &settings, Some("zh")).unwrap();
-        assert_eq!(chinese.run_options.target_language.as_deref(), Some("zh"));
+        let ordinary = run_setup(&model, &settings, None).unwrap();
+        assert!(matches!(ordinary.run_options.task, Task::Translate));
+        assert_eq!(ordinary.run_options.target_language.as_deref(), Some("en"));
+        assert_eq!(ordinary.run_options.language_candidates, ["en", "pl"]);
+
+        let polish = run_setup(&model, &settings, Some("pl")).unwrap();
+        assert!(matches!(polish.run_options.task, Task::Transcribe));
+        assert_eq!(polish.run_options.language.as_deref(), Some("pl"));
+        assert_eq!(polish.run_options.target_language, None);
+        assert_eq!(
+            polish.output_language(&settings, Some("en".into())),
+            OutputLanguageEvidence::UserSelected("pl".into())
+        );
+
+        let chinese = run_setup(&model, &settings, Some("zh")).unwrap();
+        assert!(matches!(chinese.run_options.task, Task::Transcribe));
+        assert_eq!(chinese.run_options.language.as_deref(), Some("zh"));
+        assert_eq!(chinese.run_options.target_language, None);
         assert_eq!(
             finish_text(
                 RunOutcome {
@@ -2151,6 +2127,7 @@ mod tests {
             "漢語"
         );
         assert_eq!(settings.recognition_language, pair_intent(&["pl", "en"]));
+        assert!(settings.translate_to_english);
     }
 
     #[test]
@@ -2158,6 +2135,8 @@ mod tests {
         let mut model = loaded_model("parakeet", &["en"]);
         model.capabilities.supports_language_candidates = false;
         model.capabilities.supports_language_detect = false;
+        model.capabilities.supports_translate = false;
+        model.capabilities.translate_target_languages.clear();
         for pair in [
             vec!["en", "pl"],
             vec!["en", ""],
@@ -2176,9 +2155,9 @@ mod tests {
             )
             .unwrap();
             let setup = run_setup(&model, &settings, selected.as_deref()).unwrap();
-            assert!(matches!(setup.run_options.task, Task::Translate));
-            assert_eq!(setup.run_options.target_language.as_deref(), Some("en"));
-            assert_eq!(setup.run_options.language, None);
+            assert!(matches!(setup.run_options.task, Task::Transcribe));
+            assert_eq!(setup.run_options.target_language, None);
+            assert_eq!(setup.run_options.language.as_deref(), Some("en"));
             assert!(setup.run_options.language_candidates.is_empty());
             assert!(run_setup(&model, &settings, None).is_err());
             assert!(run_setup(&model, &settings, Some("pl")).is_err());
@@ -2271,11 +2250,12 @@ mod tests {
                 .unwrap()
                 .unwrap()
                 .is_none());
-            let result = worker.join().unwrap().unwrap_err().to_string();
-            assert!(
-                result.contains("'pl'"),
-                "captured shortcut followed later settings: {result}"
-            );
+            let result = worker.join().unwrap();
+            if supported.contains(&"pl") {
+                assert_eq!(result.unwrap().as_deref(), Some("pl"));
+            } else {
+                assert!(result.is_err());
+            }
             assert_eq!(worker_active.load(Ordering::Acquire), 0);
             assert!(!streaming.load(Ordering::Acquire));
         }

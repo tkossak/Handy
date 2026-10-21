@@ -441,7 +441,7 @@ impl ShortcutAction for TranscribeAction {
                 let _ = app.emit(
                     "transcription-error",
                     format!(
-                        "Cannot translate into '{language}' with model '{model_name}': {reason}"
+                        "Cannot transcribe recognition language '{language}' with model '{model_name}': {reason}"
                     ),
                 );
                 return;

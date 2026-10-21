@@ -123,7 +123,6 @@ pub enum RecognitionLanguageError {
     PairUnsupported,
     DetectionUnsupported,
     UnsupportedCandidate { language: String },
-    TranslationUnsupported { language: String },
     ModelUnavailable { message: String },
 }
 
@@ -150,9 +149,6 @@ impl std::fmt::Display for RecognitionLanguageError {
                 f,
                 "The loaded model does not support recognition candidate '{language}'"
             ),
-            Self::TranslationUnsupported { language } => {
-                write!(f, "This model cannot translate into '{language}'")
-            }
             Self::ModelUnavailable { message } => f.write_str(message),
         }
     }
@@ -182,32 +178,25 @@ impl RecognitionLanguageStatus {
     }
 }
 
-/// Resolve a language-shortcut output language. Catalog translation is not a
-/// target list: `None` capabilities stay pending. A known model that cannot
-/// translate into the requested language is rejected, never replaced with
-/// recognition of that language.
-pub fn resolve_shortcut_translation_target(
+/// Resolve a shortcut's fixed recognition language without Single mode's
+/// fallback. Unknown capabilities stay pending; known unsupported languages
+/// are rejected rather than substituted.
+pub fn resolve_shortcut_recognition_language(
     language: &str,
-    supports_translate: Option<bool>,
-    translate_targets: Option<&[String]>,
+    supported_languages: Option<&[String]>,
 ) -> RecognitionLanguageStatus {
     let rejected = || RecognitionLanguageStatus::Incompatible {
-        reason: RecognitionLanguageError::TranslationUnsupported {
+        reason: RecognitionLanguageError::UnsupportedCandidate {
             language: language.to_string(),
         },
     };
     if language.trim().is_empty() || language == "auto" {
         return rejected();
     }
-    let (Some(supports_translate), Some(translate_targets)) =
-        (supports_translate, translate_targets)
-    else {
+    let Some(supported_languages) = supported_languages else {
         return RecognitionLanguageStatus::Unknown;
     };
-    if !supports_translate {
-        return rejected();
-    }
-    match supported_language_code(language, translate_targets) {
+    match supported_language_code(language, supported_languages) {
         Some(language) => RecognitionLanguageStatus::Ready {
             resolution: RecognitionResolution::Single {
                 language: language.clone(),
@@ -2519,7 +2508,7 @@ mod tests {
     }
 
     #[test]
-    fn shortcut_translation_target_resolves_aliases_without_substituting_a_language() {
+    fn shortcut_recognition_language_resolves_aliases_without_substituting_a_language() {
         for (requested, supported, expected) in [
             ("en", vec!["en-US", "en-GB"], "en-US"),
             ("en-GB", vec!["en-US", "en-GB"], "en-GB"),
@@ -2532,32 +2521,29 @@ mod tests {
         ] {
             let supported: Vec<String> = supported.into_iter().map(String::from).collect();
             assert_eq!(
-                resolve_shortcut_translation_target(requested, Some(true), Some(&supported))
-                    .into_result(),
+                resolve_shortcut_recognition_language(requested, Some(&supported)).into_result(),
                 Ok(RecognitionResolution::Single {
                     language: expected.into(),
                 }),
             );
         }
         for supported in [vec![], vec!["en".into()], vec!["de".into()]] {
-            assert!(
-                resolve_shortcut_translation_target("pl", Some(true), Some(&supported))
-                    .into_result()
-                    .is_err()
+            assert_eq!(
+                resolve_shortcut_recognition_language("pl", Some(&supported)),
+                RecognitionLanguageStatus::Incompatible {
+                    reason: RecognitionLanguageError::UnsupportedCandidate {
+                        language: "pl".into(),
+                    },
+                },
             );
         }
-        assert!(
-            resolve_shortcut_translation_target("en", Some(false), Some(&["en".into()]))
-                .into_result()
-                .is_err()
-        );
         for invalid in ["", "   ", "auto"] {
-            assert!(resolve_shortcut_translation_target(invalid, None, None)
+            assert!(resolve_shortcut_recognition_language(invalid, None)
                 .into_result()
                 .is_err());
         }
         assert_eq!(
-            resolve_shortcut_translation_target("pl", None, None),
+            resolve_shortcut_recognition_language("pl", None),
             RecognitionLanguageStatus::Unknown,
         );
     }

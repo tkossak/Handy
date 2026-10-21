@@ -35,7 +35,7 @@ const DEFAULT_RECOGNITION_LANGUAGE: RecognitionLanguage = {
 };
 
 const controlClass =
-  "px-2 py-1 text-sm font-semibold bg-mid-gray/10 border border-mid-gray/80 rounded min-w-[200px] text-start hover:bg-logo-primary/10 hover:border-logo-primary disabled:opacity-50 disabled:cursor-not-allowed";
+  "px-2 py-1 text-sm font-semibold bg-mid-gray/10 border border-mid-gray/80 rounded min-w-0 max-w-full text-start hover:bg-logo-primary/10 hover:border-logo-primary disabled:opacity-50 disabled:cursor-not-allowed";
 
 // Keep the existing searchable language presentation, including raw custom-model
 // codes. Resolution and duplicate detection belong exclusively to the backend.
@@ -126,7 +126,7 @@ const LanguagePicker: React.FC<{
         </span>
         <svg
           aria-hidden="true"
-          className="w-4 h-4 ms-2"
+          className="w-4 h-4 ms-2 shrink-0"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -408,27 +408,29 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
           </p>
         )}
         {mode === "pair" && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,13rem),1fr))] gap-3">
             {[0, 1].map((index) => (
-              <div key={index} className="space-y-2">
-                <LanguagePicker
-                  label={t("settings.general.language.pairLanguage", {
-                    number: index + 1,
-                  })}
-                  value={intent.pair[index] ?? ""}
-                  options={optionsFor(intent.pair[index] ?? "")}
-                  disabled={disabled}
-                  onSelect={(language) => {
-                    void updateSetting("recognition_language", {
-                      ...intent,
-                      pair:
-                        index === 0
-                          ? [language, intent.pair[1] ?? ""]
-                          : [intent.pair[0] ?? "", language],
-                    });
-                  }}
-                  selector={`candidate-${index + 1}`}
-                />
+              <div key={index} className="min-w-0 space-y-2">
+                <div className="px-4 pt-2">
+                  <LanguagePicker
+                    label={t("settings.general.language.pairLanguage", {
+                      number: index + 1,
+                    })}
+                    value={intent.pair[index] ?? ""}
+                    options={optionsFor(intent.pair[index] ?? "")}
+                    disabled={disabled}
+                    onSelect={(language) => {
+                      void updateSetting("recognition_language", {
+                        ...intent,
+                        pair:
+                          index === 0
+                            ? [language, intent.pair[1] ?? ""]
+                            : [intent.pair[0] ?? "", language],
+                      });
+                    }}
+                    selector={`candidate-${index + 1}`}
+                  />
+                </div>
                 <ShortcutInput
                   shortcutId={`transcribe_language_${index + 1}`}
                   allowClear

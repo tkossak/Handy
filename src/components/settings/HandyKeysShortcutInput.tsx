@@ -290,13 +290,13 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
       descriptionMode={descriptionMode}
       grouped={grouped}
       disabled={disabled}
-      layout="horizontal"
+      layout={allowClear ? "stacked" : "horizontal"}
     >
-      <div className="flex items-center space-x-1">
+      <div className={`flex items-center gap-1 ${allowClear ? "min-w-0" : ""}`}>
         {isRecording ? (
           <div
             ref={shortcutRef}
-            className="px-2 py-1 text-sm font-semibold border border-logo-primary bg-logo-primary/30 rounded-md"
+            className="min-w-0 overflow-x-auto whitespace-nowrap px-2 py-1 text-sm font-semibold border border-logo-primary bg-logo-primary/30 rounded-md"
           >
             {formatCurrentKeys()}
           </div>
@@ -305,7 +305,7 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
             type="button"
             aria-label={translatedName}
             disabled={disabled || isUpdating(`binding_${shortcutId}`)}
-            className="px-2 py-1 text-sm font-semibold bg-mid-gray/10 border border-mid-gray/80 hover:bg-logo-primary/10 rounded-md cursor-pointer hover:border-logo-primary disabled:opacity-50"
+            className="min-w-0 overflow-x-auto whitespace-nowrap px-2 py-1 text-sm font-semibold bg-mid-gray/10 border border-mid-gray/80 hover:bg-logo-primary/10 rounded-md cursor-pointer hover:border-logo-primary disabled:opacity-50"
             onClick={startRecording}
           >
             {binding.current_binding
@@ -314,15 +314,15 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
           </button>
         )}
         {allowClear ? (
-          <button
-            type="button"
+          <ResetButton
+            ariaLabel={`${t("common.clear")}: ${translatedName}`}
+            className="shrink-0"
             disabled={
               disabled ||
               isRecording ||
               !binding.current_binding ||
               isUpdating(`binding_${shortcutId}`)
             }
-            className="px-2 py-1 text-sm rounded hover:bg-mid-gray/10 disabled:opacity-50"
             onClick={() => {
               void updateBinding(shortcutId, "").catch((error) => {
                 toast.error(
@@ -332,9 +332,7 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
                 );
               });
             }}
-          >
-            {t("common.clear")}
-          </button>
+          />
         ) : (
           <ResetButton
             onClick={() => resetBinding(shortcutId)}
