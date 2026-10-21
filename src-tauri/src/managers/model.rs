@@ -217,34 +217,6 @@ pub fn resolve_shortcut_translation_target(
     }
 }
 
-/// Resolve one explicitly requested dictation language without Single's fallback.
-/// `None` means capabilities are not known yet: capture may begin, but a run
-/// must resolve again with the loaded model's actual language list.
-pub fn resolve_forced_recognition_language(
-    language: &str,
-    supported_languages: Option<&[String]>,
-) -> RecognitionLanguageStatus {
-    let unsupported = || RecognitionLanguageStatus::Incompatible {
-        reason: RecognitionLanguageError::UnsupportedCandidate {
-            language: language.to_string(),
-        },
-    };
-    if language.trim().is_empty() || language == "auto" {
-        return unsupported();
-    }
-    let Some(supported_languages) = supported_languages else {
-        return RecognitionLanguageStatus::Unknown;
-    };
-    match supported_language_code(language, supported_languages) {
-        Some(language) => RecognitionLanguageStatus::Ready {
-            resolution: RecognitionResolution::Single {
-                language: language.clone(),
-            },
-        },
-        None => unsupported(),
-    }
-}
-
 /// Resolve persisted intent without mutating it. Pair support must be explicit
 /// from the loaded runtime; catalog hints are not an authoritative capability.
 pub fn resolve_recognition_language(
@@ -2547,7 +2519,7 @@ mod tests {
     }
 
     #[test]
-    fn forced_language_resolves_single_aliases_without_substituting_a_language() {
+    fn shortcut_translation_target_resolves_aliases_without_substituting_a_language() {
         for (requested, supported, expected) in [
             ("en", vec!["en-US", "en-GB"], "en-US"),
             ("en-GB", vec!["en-US", "en-GB"], "en-GB"),
@@ -2560,24 +2532,32 @@ mod tests {
         ] {
             let supported: Vec<String> = supported.into_iter().map(String::from).collect();
             assert_eq!(
-                resolve_forced_recognition_language(requested, Some(&supported)).into_result(),
+                resolve_shortcut_translation_target(requested, Some(true), Some(&supported))
+                    .into_result(),
                 Ok(RecognitionResolution::Single {
                     language: expected.into(),
                 }),
             );
         }
         for supported in [vec![], vec!["en".into()], vec!["de".into()]] {
-            assert!(resolve_forced_recognition_language("pl", Some(&supported))
-                .into_result()
-                .is_err());
+            assert!(
+                resolve_shortcut_translation_target("pl", Some(true), Some(&supported))
+                    .into_result()
+                    .is_err()
+            );
         }
+        assert!(
+            resolve_shortcut_translation_target("en", Some(false), Some(&["en".into()]))
+                .into_result()
+                .is_err()
+        );
         for invalid in ["", "   ", "auto"] {
-            assert!(resolve_forced_recognition_language(invalid, None)
+            assert!(resolve_shortcut_translation_target(invalid, None, None)
                 .into_result()
                 .is_err());
         }
         assert_eq!(
-            resolve_forced_recognition_language("pl", None),
+            resolve_shortcut_translation_target("pl", None, None),
             RecognitionLanguageStatus::Unknown,
         );
     }
