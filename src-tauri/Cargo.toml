@@ -19,6 +19,11 @@ incremental = true # Compile your binary in smaller steps.
 name = "handy_app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# Embedded UI. `tauri dev` strips default features and uses the Vite dev server.
+custom-protocol = ["tauri/custom-protocol"]
+default = ["custom-protocol"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 serde_json = "1"

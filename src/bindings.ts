@@ -1154,7 +1154,7 @@ pair?: string[] }
  * Explicit reasons an active recognition restriction cannot be used, including
  * model loading or validation failures. Reporting an error does not alter intent.
  */
-export type RecognitionLanguageError = { code: "invalid_pair" } | { code: "duplicate_candidates" } | { code: "pair_unsupported" } | { code: "detection_unsupported" } | { code: "unsupported_candidate"; language: string } | { code: "model_unavailable"; message: string }
+export type RecognitionLanguageError = { code: "invalid_pair" } | { code: "duplicate_candidates" } | { code: "pair_unsupported" } | { code: "detection_unsupported" } | { code: "unsupported_candidate"; language: string } | { code: "translation_unsupported"; language: string } | { code: "model_unavailable"; message: string }
 /**
  * Shared UI/runtime policy result. Unknown is pending loaded capabilities,
  * never permission to run unrestricted detection.
