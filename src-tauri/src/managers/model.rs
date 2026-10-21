@@ -123,6 +123,7 @@ pub enum RecognitionLanguageError {
     PairUnsupported,
     DetectionUnsupported,
     UnsupportedCandidate { language: String },
+    TranslationUnsupported { language: String },
     ModelUnavailable { message: String },
 }
 
@@ -149,6 +150,9 @@ impl std::fmt::Display for RecognitionLanguageError {
                 f,
                 "The loaded model does not support recognition candidate '{language}'"
             ),
+            Self::TranslationUnsupported { language } => {
+                write!(f, "This model cannot translate into '{language}'")
+            }
             Self::ModelUnavailable { message } => f.write_str(message),
         }
     }
@@ -175,6 +179,41 @@ impl RecognitionLanguageStatus {
                 "Recognition language compatibility is pending loaded model capabilities".into(),
             ),
         }
+    }
+}
+
+/// Resolve a language-shortcut output language. Catalog translation is not a
+/// target list: `None` capabilities stay pending. A known model that cannot
+/// translate into the requested language is rejected, never replaced with
+/// recognition of that language.
+pub fn resolve_shortcut_translation_target(
+    language: &str,
+    supports_translate: Option<bool>,
+    translate_targets: Option<&[String]>,
+) -> RecognitionLanguageStatus {
+    let rejected = || RecognitionLanguageStatus::Incompatible {
+        reason: RecognitionLanguageError::TranslationUnsupported {
+            language: language.to_string(),
+        },
+    };
+    if language.trim().is_empty() || language == "auto" {
+        return rejected();
+    }
+    let (Some(supports_translate), Some(translate_targets)) =
+        (supports_translate, translate_targets)
+    else {
+        return RecognitionLanguageStatus::Unknown;
+    };
+    if !supports_translate {
+        return rejected();
+    }
+    match supported_language_code(language, translate_targets) {
+        Some(language) => RecognitionLanguageStatus::Ready {
+            resolution: RecognitionResolution::Single {
+                language: language.clone(),
+            },
+        },
+        None => rejected(),
     }
 }
 

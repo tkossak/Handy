@@ -440,7 +440,9 @@ impl ShortcutAction for TranscribeAction {
                     .unwrap_or_else(|| settings.selected_model.clone());
                 let _ = app.emit(
                     "transcription-error",
-                    format!("Cannot dictate in '{language}' with model '{model_name}': {reason}"),
+                    format!(
+                        "Cannot translate into '{language}' with model '{model_name}': {reason}"
+                    ),
                 );
                 return;
             }
