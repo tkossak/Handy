@@ -179,6 +179,8 @@ transcribe-cpp = { git = "https://github.com/tkossak/transcribe.cpp", rev = "903
 [patch.crates-io]
 tao = { git = "https://github.com/cjpais/tao", rev = "c3bee28c1d446d95f08c95c3b6f8d4bde052b876" }
 tao-macros = { git = "https://github.com/cjpais/tao", rev = "c3bee28c1d446d95f08c95c3b6f8d4bde052b876" }
+# Local 0.8.0 patch: discover X11 lock masks, including Scroll Lock.
+global-hotkey = { path = "vendor/global-hotkey" }
 
 [dev-dependencies]
 tempfile = "3"
